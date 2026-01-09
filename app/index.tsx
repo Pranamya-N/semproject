@@ -34,7 +34,6 @@ const Index: React.FC = () => {
       buttonHeight: isSmallDevice ? 50 : isTablet ? 58 : 54,
       buttonFontSize: isSmallDevice ? 15 : isTablet ? 18 : 16,
       cardTitleSize: isSmallDevice ? 20 : isTablet ? 30 : 26,
-      statNumberSize: isSmallDevice ? 18 : isTablet ? 28 : 24,
     }),
     [width, height, isSmallDevice, isTablet]
   );
@@ -43,114 +42,59 @@ const Index: React.FC = () => {
   const onSignUp = (): void => router.push('/signup');
 
   return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: '#0a0f1a' }]}>
-      <View style={styles.container}>
-        <StatusBar barStyle="light-content" backgroundColor="#0a0f1a" />
-
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar barStyle="light-content" />
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
         {/* Decorative Background Circles */}
         <View
           style={[
             styles.accentCircle,
-            {
-              width: width * 0.8,
-              height: width * 0.8,
-              borderRadius: (width * 0.8) / 2,
-              top: -width * 0.3,
-              right: -width * 0.3,
-            },
+            { width: width * 0.6, height: width * 0.6, top: -width * 0.2, right: -width * 0.15 },
           ]}
         />
         <View
           style={[
             styles.accentCircle,
-            {
-              width: width * 0.6,
-              height: width * 0.6,
-              borderRadius: (width * 0.6) / 2,
-              backgroundColor: 'rgba(59, 130, 246, 0.06)',
-              bottom: height * 0.15,
-              left: -width * 0.25,
-            },
-          ]}
-        />
-        <View
-          style={[
-            styles.accentCircle,
-            {
-              width: width * 0.35,
-              height: width * 0.35,
-              borderRadius: (width * 0.35) / 2,
-              backgroundColor: 'rgba(251, 191, 36, 0.06)',
-              bottom: -width * 0.1,
-              right: width * 0.05,
-            },
+            { width: width * 0.5, height: width * 0.5, bottom: -width * 0.1, left: -width * 0.2 },
           ]}
         />
 
-        <ScrollView
-          contentContainerStyle={[
-            styles.scrollContent,
-            {
-              paddingHorizontal: responsiveStyles.horizontalPadding,
-              paddingTop: isSmallDevice ? height * 0.08 : height * 0.12,
-              paddingBottom: height * 0.05,
-            },
-          ]}
-          showsVerticalScrollIndicator={false}
-          scrollEventThrottle={16}
-        >
-          {/* Hero Section */}
-          <View style={styles.heroSection}>
-            <View
-              style={[
-                styles.logoCircle,
-                {
-                  width: responsiveStyles.logoSize,
-                  height: responsiveStyles.logoSize,
-                  borderRadius: responsiveStyles.logoSize / 2,
-                },
-              ]}
-            >
-              <Ionicons
-                name="barbell-outline"
-                size={isSmallDevice ? 40 : isTablet ? 60 : 50}
-                color="#0a0f1a"
-              />
-            </View>
-
-            <Text
-              style={[
-                styles.brandName,
-                {
-                  fontSize: responsiveStyles.brandFontSize,
-                  marginTop: height * 0.02,
-                },
-              ]}
-            >
-              FITCORE
-            </Text>
-
-            <Text
-              style={[
-                styles.tagline,
-                {
-                  fontSize: responsiveStyles.taglineFontSize,
-                  marginTop: height * 0.015,
-                },
-              ]}
-            >
-              Strengthen Your Routine{'\n'}Track Your Wins
-            </Text>
+        {/* Hero Section */}
+        <View style={styles.heroSection}>
+          <View
+            style={[
+              styles.logoCircle,
+              {
+                width: responsiveStyles.logoSize,
+                height: responsiveStyles.logoSize,
+                borderRadius: responsiveStyles.logoSize / 2,
+                marginBottom: 16,
+              },
+            ]}
+          >
+            <Ionicons name="barbell" size={responsiveStyles.logoSize * 0.5} color="#0a0f1a" />
           </View>
+          <Text style={[styles.brandName, { fontSize: responsiveStyles.brandFontSize }]}>
+            FITCORE
+          </Text>
+          <Text
+            style={[
+              styles.tagline,
+              { fontSize: responsiveStyles.taglineFontSize, marginTop: 8, marginBottom: 30 },
+            ]}
+          >
+            Strengthen Your Routine{'\n'}Track Your Wins
+          </Text>
 
           {/* Features Section */}
           <View
             style={[
               styles.featuresRow,
-              {
-                marginBottom: height * 0.05,
-                marginTop: height * 0.02,
-              },
+              { marginBottom: 30, paddingHorizontal: responsiveStyles.horizontalPadding },
             ]}
           >
             <View style={styles.featureItem}>
@@ -160,26 +104,14 @@ const Index: React.FC = () => {
                   {
                     width: responsiveStyles.featureIconSize,
                     height: responsiveStyles.featureIconSize,
-                    borderRadius: responsiveStyles.featureIconSize * 0.25,
+                    borderRadius: responsiveStyles.featureIconSize / 2,
                   },
                 ]}
               >
-                <Ionicons
-                  name="trophy-outline"
-                  size={isTablet ? 28 : 22}
-                  color="#4ade80"
-                />
+                <Ionicons name="trophy" size={responsiveStyles.featureIconSize * 0.5} color="#4ade80" />
               </View>
-              <Text
-                style={[
-                  styles.featureText,
-                  { fontSize: isTablet ? 14 : 12 },
-                ]}
-              >
-                Achievements
-              </Text>
+              <Text style={styles.featureText}>Achievements</Text>
             </View>
-
             <View style={styles.featureItem}>
               <View
                 style={[
@@ -187,26 +119,14 @@ const Index: React.FC = () => {
                   {
                     width: responsiveStyles.featureIconSize,
                     height: responsiveStyles.featureIconSize,
-                    borderRadius: responsiveStyles.featureIconSize * 0.25,
+                    borderRadius: responsiveStyles.featureIconSize / 2,
                   },
                 ]}
               >
-                <Ionicons
-                  name="analytics-outline"
-                  size={isTablet ? 28 : 22}
-                  color="#3b82f6"
-                />
+                <Ionicons name="bar-chart" size={responsiveStyles.featureIconSize * 0.5} color="#4ade80" />
               </View>
-              <Text
-                style={[
-                  styles.featureText,
-                  { fontSize: isTablet ? 14 : 12 },
-                ]}
-              >
-                Analytics
-              </Text>
+              <Text style={styles.featureText}>Analytics</Text>
             </View>
-
             <View style={styles.featureItem}>
               <View
                 style={[
@@ -214,182 +134,58 @@ const Index: React.FC = () => {
                   {
                     width: responsiveStyles.featureIconSize,
                     height: responsiveStyles.featureIconSize,
-                    borderRadius: responsiveStyles.featureIconSize * 0.25,
+                    borderRadius: responsiveStyles.featureIconSize / 2,
                   },
                 ]}
               >
-                <Ionicons
-                  name="people-outline"
-                  size={isTablet ? 28 : 22}
-                  color="#fbbf24"
-                />
+                <Ionicons name="people" size={responsiveStyles.featureIconSize * 0.5} color="#4ade80" />
               </View>
-              <Text
-                style={[
-                  styles.featureText,
-                  { fontSize: isTablet ? 14 : 12 },
-                ]}
-              >
-                Community
-              </Text>
+              <Text style={styles.featureText}>Community</Text>
             </View>
           </View>
+        </View>
 
-          {/* Main Card */}
-          <View
-            style={[
-              styles.card,
-              {
-                padding: responsiveStyles.cardPadding,
-                maxWidth: isTablet ? 600 : '100%',
-                alignSelf: 'center',
-              },
-            ]}
+        {/* Main Card */}
+        <View
+          style={[
+            styles.card,
+            {
+              padding: responsiveStyles.cardPadding,
+              marginHorizontal: responsiveStyles.horizontalPadding,
+            },
+          ]}
+        >
+          <Text style={[styles.cardTitle, { fontSize: responsiveStyles.cardTitleSize }]}>
+            Ready to Transform?
+          </Text>
+          <Text style={styles.cardSubtitle}>
+            Join thousands of members achieving their fitness goals with Fitcore.
+          </Text>
+
+          {/* Login Button */}
+          <TouchableOpacity
+            style={[styles.primaryButton, { height: responsiveStyles.buttonHeight, marginTop: 24 }]}
+            onPress={onLogin}
+            activeOpacity={0.8}
           >
-            <Text
-              style={[
-                styles.cardTitle,
-                {
-                  fontSize: responsiveStyles.cardTitleSize,
-                },
-              ]}
-            >
-              Ready to Transform?
+            <Text style={[styles.primaryButtonText, { fontSize: responsiveStyles.buttonFontSize }]}>
+              Login
             </Text>
+            <Ionicons name="arrow-forward" size={20} color="#0a0f1a" />
+          </TouchableOpacity>
 
-            <Text
-              style={[
-                styles.cardSubtitle,
-                {
-                  marginBottom: height * 0.03,
-                  fontSize: isTablet ? 16 : 14,
-                },
-              ]}
-            >
-              Join thousands of members achieving their fitness goals with Fitcore.
+          {/* Sign Up Button */}
+          <TouchableOpacity
+            style={[styles.secondaryButton, { height: responsiveStyles.buttonHeight, marginTop: 12 }]}
+            onPress={onSignUp}
+            activeOpacity={0.8}
+          >
+            <Text style={[styles.secondaryButtonText, { fontSize: responsiveStyles.buttonFontSize }]}>
+              Create Account
             </Text>
-
-            {/* Login Button */}
-            <TouchableOpacity
-              style={[
-                styles.primaryButton,
-                {
-                  height: responsiveStyles.buttonHeight,
-                  marginBottom: height * 0.02,
-                },
-              ]}
-              activeOpacity={0.75}
-              onPress={onLogin}
-            >
-              <Text
-                style={[
-                  styles.primaryButtonText,
-                  { fontSize: responsiveStyles.buttonFontSize },
-                ]}
-              >
-                Login
-              </Text>
-              <Ionicons name="arrow-forward" size={responsiveStyles.buttonFontSize} color="#0a0f1a" />
-            </TouchableOpacity>
-
-            {/* Sign Up Button */}
-            <TouchableOpacity
-              style={[
-                styles.secondaryButton,
-                {
-                  height: responsiveStyles.buttonHeight,
-                  marginBottom: height * 0.035,
-                },
-              ]}
-              activeOpacity={0.75}
-              onPress={onSignUp}
-            >
-              <Text
-                style={[
-                  styles.secondaryButtonText,
-                  { fontSize: responsiveStyles.buttonFontSize },
-                ]}
-              >
-                Create Account
-              </Text>
-            </TouchableOpacity>
-
-            {/* Stats Section */}
-            <View style={[styles.statsRow, { marginTop: height * 0.02 }]}>
-              <View style={styles.statItem}>
-                <Text
-                  style={[
-                    styles.statNumber,
-                    { fontSize: responsiveStyles.statNumberSize },
-                  ]}
-                >
-                  10K+
-                </Text>
-                <Text
-                  style={[
-                    styles.statLabel,
-                    { fontSize: isTablet ? 13 : 11, marginTop: 6 },
-                  ]}
-                >
-                  Members
-                </Text>
-              </View>
-
-              <View
-                style={[
-                  styles.statDivider,
-                  { height: isSmallDevice ? 30 : 40 },
-                ]}
-              />
-
-              <View style={styles.statItem}>
-                <Text
-                  style={[
-                    styles.statNumber,
-                    { fontSize: responsiveStyles.statNumberSize },
-                  ]}
-                >
-                  500+
-                </Text>
-                <Text
-                  style={[
-                    styles.statLabel,
-                    { fontSize: isTablet ? 13 : 11, marginTop: 6 },
-                  ]}
-                >
-                  Gyms
-                </Text>
-              </View>
-
-              <View
-                style={[
-                  styles.statDivider,
-                  { height: isSmallDevice ? 30 : 40 },
-                ]}
-              />
-
-              <View style={styles.statItem}>
-                <Text
-                  style={[
-                    styles.statNumber,
-                    { fontSize: responsiveStyles.statNumberSize },
-                  ]}
-                >
-                  98%
-                </Text>
-                <Text
-                  style={[
-                    styles.statLabel,
-                    { fontSize: isTablet ? 13 : 11, marginTop: 6 },
-                  ]}
-                >
-                  Satisfaction
-                </Text>
-              </View>
-            </View>
-          </View>
-        </ScrollView>
-      </View>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
     </SafeAreaView>
   );
 };
@@ -509,30 +305,6 @@ const styles = StyleSheet.create({
   secondaryButtonText: {
     fontWeight: '600',
     color: '#e9eef7',
-  },
-  statsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
-    paddingTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(148, 163, 184, 0.15)',
-  },
-  statItem: {
-    alignItems: 'center',
-    flex: 1,
-  },
-  statNumber: {
-    fontWeight: '800',
-    color: '#4ade80',
-  },
-  statLabel: {
-    color: '#64748b',
-  },
-  statDivider: {
-    width: 1,
-    backgroundColor: 'rgba(148, 163, 184, 0.2)',
-    marginHorizontal: 10,
   },
 });
 

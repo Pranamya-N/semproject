@@ -5,7 +5,7 @@ import { useRouter } from 'expo-router';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import React, { useMemo, useState } from 'react';
-import {
+import {                                                    
   ActivityIndicator,
   Keyboard,
   KeyboardAvoidingView,
@@ -416,20 +416,8 @@ const handleLogin = async (): Promise<void> => {
                       color="#e9eef7"
                     />
                   </TouchableOpacity>
-                  <TouchableOpacity style={styles.socialButton} activeOpacity={0.7}>
-                    <Ionicons
-                      name="logo-apple"
-                      size={isTablet ? 24 : 20}
-                      color="#e9eef7"
-                    />
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.socialButton} activeOpacity={0.7}>
-                    <Ionicons
-                      name="logo-facebook"
-                      size={isTablet ? 24 : 20}
-                      color="#e9eef7"
-                    />
-                  </TouchableOpacity>
+                  
+                  
                 </View>
 
                 {/* Sign Up Link */}

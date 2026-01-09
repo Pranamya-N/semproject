@@ -23,8 +23,12 @@ const Profile: React.FC = () => {
     router.replace('/login');
   };
 
+  const handleEditProfile = (): void => {
+    router.push('/editprofile');
+  };
+
   return (
-    <View style={styles. container}>
+    <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0a0f1a" />
 
       <ScrollView
@@ -47,7 +51,7 @@ const Profile: React.FC = () => {
         </View>
 
         <View style={styles.menuCard}>
-          <TouchableOpacity style={styles.menuItem}>
+          <TouchableOpacity style={styles.menuItem} onPress={handleEditProfile}>
             <Ionicons name="person-outline" size={22} color="#4ade80" />
             <Text style={styles.menuText}>Edit Profile</Text>
             <Ionicons name="chevron-forward" size={20} color="#64748b" />
@@ -93,7 +97,7 @@ const styles = StyleSheet.create({
     paddingTop: height * 0.06,
     paddingBottom: height * 0.02,
   },
-  headerTitle:  {
+  headerTitle: {
     fontSize: 28,
     fontWeight: '700',
     color: '#e9eef7',
@@ -109,7 +113,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.06)',
   },
   avatar: {
-    width:  90,
+    width: 90,
     height: 90,
     borderRadius: 45,
     backgroundColor: '#4ade80',
@@ -117,7 +121,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 16,
   },
-  avatarText:  {
+  avatarText: {
     fontSize: 36,
     fontWeight: '700',
     color: '#0a0f1a',
@@ -132,11 +136,11 @@ const styles = StyleSheet.create({
     color: '#64748b',
     marginTop: 4,
   },
-  roleBadge:  {
+  roleBadge: {
     backgroundColor: 'rgba(74, 222, 128, 0.15)',
     paddingHorizontal: 16,
-    paddingVertical:  6,
-    borderRadius:  20,
+    paddingVertical: 6,
+    borderRadius: 20,
     marginTop: 12,
   },
   roleText: {
@@ -163,11 +167,11 @@ const styles = StyleSheet.create({
   menuText: {
     flex: 1,
     fontSize: 16,
-    color:  '#e9eef7',
+    color: '#e9eef7',
     marginLeft: 14,
   },
   logoutBtn: {
-    flexDirection:  'row',
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(248, 113, 113, 0.1)',

@@ -9,7 +9,7 @@ const MemberLayout: React.FC = () => {
 
   if (loading) {
     return (
-      <View style={{ flex: 1, justifyContent:  'center', alignItems: 'center', backgroundColor: '#0a0f1a' }}>
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#0a0f1a' }}>
         <ActivityIndicator size="large" color="#4ade80" />
       </View>
     );
@@ -72,6 +72,12 @@ const MemberLayout: React.FC = () => {
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="person-outline" size={size} color={color} />
           ),
+        }}
+      />
+      <Tabs.Screen
+        name="editprofile"
+        options={{
+          href: null, // This hides it from the tab bar
         }}
       />
     </Tabs>
