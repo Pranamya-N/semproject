@@ -22,7 +22,7 @@ const MemberLayout: React.FC = () => {
   return (
     <Tabs
       screenOptions={{
-        headerShown: false,
+        headerShown: true,
         tabBarStyle: {
           backgroundColor: '#0f172a',
           borderTopColor: 'rgba(255,255,255,0.1)',
@@ -83,6 +83,12 @@ const MemberLayout: React.FC = () => {
       />
       <Tabs.Screen
         name="changepassword"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="gymdetails"
         options={{
           href: null,
         }}

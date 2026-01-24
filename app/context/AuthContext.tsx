@@ -2,10 +2,10 @@ import { onAuthStateChanged, signOut, User } from 'firebase/auth';
 import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { auth, db } from '../lib/firebase';
-import { EnrollmentStatus, UserData, UserRole } from '../types';
+import { EnrollmentStatus, UserData, UserRole, PaymentMethod } from '../types';
 
 interface AuthContextType {
-  user:  User | null;
+  user: User | null;
   userData: UserData | null;
   loading: boolean;
   logout: () => Promise<void>;
@@ -34,17 +34,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (userDoc.exists()) {
         const data = userDoc.data();
+
+        // Set dynamic planDuration based on paymentMethod
+        let planDuration = 1; // default 1 month
+        if (data.paymentMethod === 'Quarterly') planDuration = 3;
+        else if (data.paymentMethod === '6-Month') planDuration = 6;
+
         setUserData({
-          uid: firebaseUser. uid,
+          uid: firebaseUser.uid,
           email: firebaseUser.email,
-          displayName: firebaseUser.displayName || data. displayName,
+          displayName: firebaseUser.displayName || data.displayName,
           role: data.role || 'member',
           gymId: data.gymId || null,
-          enrollmentStatus: data. enrollmentStatus || 'none',
-          paymentMethod: data. paymentMethod || null,
+          enrollmentStatus: data.enrollmentStatus || 'none',
+          paymentMethod: data.paymentMethod || null,
           transactionId: data.transactionId || null,
-          enrolledAt: data.enrolledAt?. toDate() || null,
-          createdAt: data.createdAt?. toDate() || new Date(),
+          enrolledAt: data.enrolledAt?.toDate() || null,
+          createdAt: data.createdAt?.toDate() || new Date(),
+          planDuration,
         });
       } else {
         // Create new user document
@@ -54,16 +61,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           role: 'member' as UserRole,
           gymId: null,
           enrollmentStatus: 'none' as EnrollmentStatus,
-          paymentMethod: null,
+          paymentMethod: null as PaymentMethod | null,
           transactionId: null,
           enrolledAt: null,
           createdAt: serverTimestamp(),
+          planDuration: 1, // default
         };
 
         await setDoc(userDocRef, newUserData);
 
         setUserData({
-          uid: firebaseUser. uid,
+          uid: firebaseUser.uid,
           email: firebaseUser.email,
           displayName: firebaseUser.displayName,
           role: 'member',
@@ -73,6 +81,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           transactionId: null,
           enrolledAt: null,
           createdAt: new Date(),
+          planDuration: 1,
         });
       }
     } catch (error) {
@@ -82,20 +91,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const refreshUserData = async (): Promise<void> => {
-    if (user) {
-      await fetchUserData(user);
-    }
+    if (user) await fetchUserData(user);
   };
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setUser(firebaseUser);
 
-      if (firebaseUser) {
-        await fetchUserData(firebaseUser);
-      } else {
-        setUserData(null);
-      }
+      if (firebaseUser) await fetchUserData(firebaseUser);
+      else setUserData(null);
 
       setLoading(false);
     });

@@ -1,6 +1,6 @@
 export type UserRole = 'superAdmin' | 'gymAdmin' | 'member';
 export type EnrollmentStatus = 'none' | 'pending' | 'approved' | 'rejected';
-export type PaymentMethod = 'online' | 'offline';
+export type PaymentMethod = 'online' | 'offline' | 'Quarterly' | '6-Month';
 
 export interface Gym {
   id: string;
@@ -13,6 +13,19 @@ export interface Gym {
   createdAt: Date;
   adminId: string;
   isActive: boolean;
+  description?: string;
+  quarterlyFee?: number;
+  annualFee?: number;
+  amenities?: string[];
+  images?: string[];
+  rating?: number;
+  reviews?: number;
+  openingHours?: string;
+  capacity?: number;
+  coordinates?: {
+    latitude: number;
+    longitude: number;
+  };
 }
 
 export interface UserData {
@@ -26,6 +39,7 @@ export interface UserData {
   transactionId: string | null;
   enrolledAt: Date | null;
   createdAt: Date;
+  planDuration?: number;
 }
 
 export interface Enrollment {

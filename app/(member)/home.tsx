@@ -1,25 +1,53 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useState } from 'react';
+import { useRouter } from 'expo-router';
+import React, { useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   Dimensions,
-  ScrollView,
+  FlatList,
   StatusBar,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
+import { collection, getDocs, query, where } from 'firebase/firestore';
 import { useAuth } from '../context/AuthContext';
+import { db } from '../lib/firebase';
+import { Gym } from '../types';
 
 const { width, height } = Dimensions.get('window');
 const isSmall = height < 700;
 
 const MemberHome: React.FC = () => {
   const { userData } = useAuth();
-  const [isCheckedIn, setIsCheckedIn] = useState<boolean>(false);
+  const router = useRouter();
+  const [gyms, setGyms] = useState<Gym[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
 
-  const handleCheckInOut = (): void => {
-    setIsCheckedIn(!isCheckedIn);
+  useEffect(() => {
+    fetchGyms();
+  }, []);
+
+  const fetchGyms = async (): Promise<void> => {
+    try {
+      const gymsQuery = query(
+        collection(db, 'gyms'),
+        where('isActive', '==', true)
+      );
+      const snapshot = await getDocs(gymsQuery);
+      const gymsList: Gym[] = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+        createdAt: doc.data().createdAt?.toDate() || new Date(),
+      })) as Gym[];
+
+      setGyms(gymsList);
+    } catch (error) {
+      console.error('Error fetching gyms:', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const getGreeting = (): string => {
@@ -29,6 +57,50 @@ const MemberHome: React.FC = () => {
     return 'Good Evening';
   };
 
+  const renderGymCard = ({ item }: { item: Gym }) => {
+    return (
+      <TouchableOpacity
+        activeOpacity={0.85}
+        onPress={() => router.push(`/gymdetails/${item.id}`)}
+      >
+        <View style={styles.gymCard}>
+          <View style={styles.gymIconContainer}>
+            <Ionicons name="barbell" size={28} color="#4ade80" />
+          </View>
+
+          <View style={styles.gymInfo}>
+            <Text style={styles.gymName}>{item.name}</Text>
+
+            <View style={styles.gymDetailRow}>
+              <Ionicons name="location-outline" size={14} color="#64748b" />
+              <Text style={styles.gymAddress}>{item.address}</Text>
+            </View>
+
+            <View style={styles.gymDetailRow}>
+              <Ionicons name="call-outline" size={14} color="#64748b" />
+              <Text style={styles.gymPhone}>{item.phone}</Text>
+            </View>
+          </View>
+
+          <View style={styles.gymPriceContainer}>
+            <Text style={styles.gymPriceLabel}>Monthly</Text>
+            <Text style={styles.gymPrice}>₹{item.monthlyFee}</Text>
+          </View>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <StatusBar barStyle="light-content" backgroundColor="#0a0f1a" />
+        <ActivityIndicator size="large" color="#4ade80" />
+        <Text style={styles.loadingText}>Loading gyms...</Text>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0a0f1a" />
@@ -36,93 +108,33 @@ const MemberHome: React.FC = () => {
       <View style={styles.accentCircleOne} />
       <View style={styles.accentCircleTwo} />
 
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.header}>
-          <View>
-            <Text style={styles.greeting}>{getGreeting()},</Text>
-            <Text style={styles.userName}>{userData?.displayName || 'Member'}</Text>
-          </View>
-          <TouchableOpacity style={styles.notificationBtn}>
-            <Ionicons name="notifications-outline" size={24} color="#e9eef7" />
-          </TouchableOpacity>
+      <View style={styles.header}>
+        <View>
+          <Text style={styles.greeting}>{getGreeting()},</Text>
+          <Text style={styles.userName}>{userData?.displayName || 'Member'}</Text>
         </View>
-
-        <View style={styles.gymCard}>
-          <Ionicons name="barbell-outline" size={24} color="#4ade80" />
-          <View style={styles.gymInfo}>
-            <Text style={styles.gymName}>FitCore Gym</Text>
-            <Text style={styles.gymAddress}>123 Fitness Street, City</Text>
-          </View>
-          <View style={styles.statusBadge}>
-            <View style={styles.statusDot} />
-            <Text style={styles.statusText}>Open</Text>
-          </View>
-        </View>
-
-        <TouchableOpacity
-          style={[styles.checkInBtn, isCheckedIn && styles.checkOutBtn]}
-          activeOpacity={0.85}
-          onPress={handleCheckInOut}
-        >
-          <View style={styles.checkInIconContainer}>
-            <Ionicons
-              name={isCheckedIn ? 'exit-outline' : 'enter-outline'}
-              size={40}
-              color="#0a0f1a"
-            />
-          </View>
-          <Text style={styles.checkInText}>
-            {isCheckedIn ? 'Check Out' : 'Check In'}
-          </Text>
-          <Text style={styles.checkInSubtext}>
-            {isCheckedIn ? 'Tap to end your session' : 'Tap to start your workout'}
-          </Text>
+        <TouchableOpacity style={styles.notificationBtn}>
+          <Ionicons name="notifications-outline" size={24} color="#e9eef7" />
         </TouchableOpacity>
+      </View>
 
-        <View style={styles.statsGrid}>
-          <View style={styles.statCard}>
-            <Ionicons name="flame-outline" size={28} color="#f97316" />
-            <Text style={styles.statNumber}>12</Text>
-            <Text style={styles.statLabel}>Day Streak</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Ionicons name="calendar-outline" size={28} color="#3b82f6" />
-            <Text style={styles.statNumber}>18</Text>
-            <Text style={styles.statLabel}>This Month</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Ionicons name="time-outline" size={28} color="#a855f7" />
-            <Text style={styles.statNumber}>1.5h</Text>
-            <Text style={styles.statLabel}>Avg Duration</Text>
-          </View>
-        </View>
+      <Text style={styles.sectionTitle}>Available Gyms</Text>
 
-        <View style={styles.membershipCard}>
-          <View style={styles.membershipHeader}>
-            <Text style={styles.membershipTitle}>Membership Status</Text>
-            <View style={styles.activeBadge}>
-              <Text style={styles.activeBadgeText}>Active</Text>
-            </View>
-          </View>
-          <View style={styles.membershipDetails}>
-            <View style={styles.membershipRow}>
-              <Text style={styles.membershipLabel}>Plan</Text>
-              <Text style={styles.membershipValue}>Monthly Premium</Text>
-            </View>
-            <View style={styles.membershipRow}>
-              <Text style={styles.membershipLabel}>Expires</Text>
-              <Text style={styles.membershipValue}>Jan 31, 2026</Text>
-            </View>
-            <View style={styles.membershipRow}>
-              <Text style={styles.membershipLabel}>Days Left</Text>
-              <Text style={[styles.membershipValue, { color: '#4ade80' }]}>30 days</Text>
-            </View>
-          </View>
+      {gyms.length === 0 ? (
+        <View style={styles.emptyContainer}>
+          <Ionicons name="fitness-outline" size={64} color="#64748b" />
+          <Text style={styles.emptyText}>No gyms available</Text>
+          <Text style={styles.emptySubtext}>Please check back later</Text>
         </View>
-      </ScrollView>
+      ) : (
+        <FlatList
+          data={gyms}
+          renderItem={renderGymCard}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
+        />
+      )}
     </View>
   );
 };
@@ -134,10 +146,16 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#0a0f1a',
   },
-  scrollContent: {
-    paddingHorizontal: width * 0.05,
-    paddingTop: height * 0.06,
-    paddingBottom: height * 0.02,
+  loadingContainer: {
+    flex: 1,
+    backgroundColor: '#0a0f1a',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    color: '#94a3b8',
+    marginTop: 16,
+    fontSize: 16,
   },
   accentCircleOne: {
     position: 'absolute',
@@ -160,8 +178,9 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: height * 0.025,
+    alignItems: 'flex-start',
+    paddingHorizontal: width * 0.05,
+    paddingTop: height * 0.06,
   },
   greeting: {
     fontSize: 16,
@@ -182,154 +201,88 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.06)',
   },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#e9eef7',
+    paddingHorizontal: width * 0.05,
+    marginTop: height * 0.03,
+    marginBottom: height * 0.02,
+  },
+  listContent: {
+    paddingHorizontal: width * 0.05,
+    paddingBottom: 20,
+  },
   gymCard: {
+    backgroundColor: 'rgba(15, 23, 42, 0.8)',
+    borderRadius: 18,
+    padding: 18,
+    marginBottom: 14,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(15, 23, 42, 0.8)',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: height * 0.025,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  gymIconContainer: {
+    width: 56,
+    height: 56,
+    borderRadius: 14,
+    backgroundColor: 'rgba(74, 222, 128, 0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   gymInfo: {
     flex: 1,
-    marginLeft: 12,
+    marginLeft: 14,
   },
   gymName: {
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 17,
+    fontWeight: '700',
     color: '#e9eef7',
+    marginBottom: 6,
+  },
+  gymDetailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 3,
   },
   gymAddress: {
     fontSize: 13,
     color: '#64748b',
-    marginTop: 2,
-  },
-  statusBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(74, 222, 128, 0.15)',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 20,
-  },
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#4ade80',
-    marginRight: 6,
-  },
-  statusText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#4ade80',
-  },
-  checkInBtn: {
-    backgroundColor: '#4ade80',
-    borderRadius: 24,
-    paddingVertical: height * 0.04,
-    alignItems: 'center',
-    marginBottom: height * 0.025,
-    shadowColor: '#4ade80',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.35,
-    shadowRadius: 16,
-    elevation: 10,
-  },
-  checkOutBtn: {
-    backgroundColor: '#f97316',
-    shadowColor: '#f97316',
-  },
-  checkInIconContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: 'rgba(255,255,255,0.25)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 12,
-  },
-  checkInText: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: '#0a0f1a',
-  },
-  checkInSubtext: {
-    fontSize: 14,
-    color: 'rgba(10, 15, 26, 0.7)',
-    marginTop: 4,
-  },
-  statsGrid: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: height * 0.025,
-  },
-  statCard: {
+    marginLeft: 6,
     flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.8)',
-    borderRadius: 16,
-    padding: 16,
-    alignItems: 'center',
-    marginHorizontal: 5,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
   },
-  statNumber: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#e9eef7',
-    marginTop: 8,
+  gymPhone: {
+    fontSize: 13,
+    color: '#64748b',
+    marginLeft: 6,
   },
-  statLabel: {
+  gymPriceContainer: {
+    alignItems: 'flex-end',
+  },
+  gymPriceLabel: {
     fontSize: 11,
     color: '#64748b',
-    marginTop: 4,
   },
-  membershipCard: {
-    backgroundColor: 'rgba(15, 23, 42, 0.8)',
-    borderRadius: 20,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
-  },
-  membershipHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  membershipTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#e9eef7',
-  },
-  activeBadge: {
-    backgroundColor: 'rgba(74, 222, 128, 0.15)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-  },
-  activeBadgeText: {
-    fontSize: 12,
-    fontWeight: '700',
+  gymPrice: {
+    fontSize: 20,
+    fontWeight: '800',
     color: '#4ade80',
   },
-  membershipDetails: {
-    gap: 12,
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  membershipRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  membershipLabel: {
-    fontSize: 14,
-    color: '#64748b',
-  },
-  membershipValue: {
-    fontSize: 14,
+  emptyText: {
+    fontSize: 20,
     fontWeight: '600',
     color: '#e9eef7',
+    marginTop: 16,
+  },
+  emptySubtext: {
+    fontSize: 14,
+    color: '#64748b',
+    marginTop: 8,
   },
 });
