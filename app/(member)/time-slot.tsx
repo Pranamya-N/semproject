@@ -1,28 +1,34 @@
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  query,
+  updateDoc,
+  where,
+} from "firebase/firestore";
 import React, { useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Dimensions,
-    Modal,
-    Platform,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Dimensions,
+  Modal,
+  Platform,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { useAuth } from "../context/AuthContext";
 import { db } from "../lib/firebase";
 
 const { width, height } = Dimensions.get("window");
-const isSmall = height < 700;
 
-// Time slot types
 type TimeSlot = "Morning" | "Evening" | "Night";
 type TimeSlotDetails = {
   name: TimeSlot;
@@ -34,7 +40,7 @@ type TimeSlotDetails = {
 
 const TimeSlotPage: React.FC = () => {
   const router = useRouter();
-  const { userData } = useAuth();
+  const { userData, refreshUserData } = useAuth();
 
   const [loading, setLoading] = useState<boolean>(true);
   const [currentTimeSlot, setCurrentTimeSlot] = useState<TimeSlot | null>(null);
@@ -43,7 +49,18 @@ const TimeSlotPage: React.FC = () => {
   const [changingSlot, setChangingSlot] = useState<boolean>(false);
   const [gymName, setGymName] = useState<string>("");
 
-  // Available time slots with details
+  // Member counts for each time slot
+  const [memberCounts, setMemberCounts] = useState<{
+    Morning: number;
+    Evening: number;
+    Night: number;
+  }>({
+    Morning: 0,
+    Evening: 0,
+    Night: 0,
+  });
+  const [loadingCounts, setLoadingCounts] = useState<boolean>(false);
+
   const timeSlots: TimeSlotDetails[] = [
     {
       name: "Morning",
@@ -70,43 +87,32 @@ const TimeSlotPage: React.FC = () => {
 
   useEffect(() => {
     loadUserTimeSlot();
+    loadMemberCounts();
   }, [userData]);
 
   const loadUserTimeSlot = async () => {
     try {
       setLoading(true);
 
-      // First try to get from AsyncStorage (local cache)
-      const savedTimeSlot = (await AsyncStorage.getItem(
-        "userTimeSlot",
-      )) as TimeSlot | null;
-
       if (
-        savedTimeSlot &&
-        ["Morning", "Evening", "Night"].includes(savedTimeSlot)
+        userData?.timeSlot &&
+        ["Morning", "Evening", "Night"].includes(userData.timeSlot)
       ) {
-        setCurrentTimeSlot(savedTimeSlot);
+        setCurrentTimeSlot(userData.timeSlot);
       } else {
-        // If not in local storage, try to get from Firestore
-        if (userData?.uid) {
-          const userDoc = await getDoc(doc(db, "users", userData.uid));
-          if (userDoc.exists()) {
-            const userDataFromDb = userDoc.data();
-            const dbTimeSlot = userDataFromDb.timeSlot as TimeSlot;
-
-            if (
-              dbTimeSlot &&
-              ["Morning", "Evening", "Night"].includes(dbTimeSlot)
-            ) {
-              setCurrentTimeSlot(dbTimeSlot);
-              // Save to AsyncStorage for future use
-              await AsyncStorage.setItem("userTimeSlot", dbTimeSlot);
-            }
-          }
+        const savedTimeSlot = (await AsyncStorage.getItem(
+          "userTimeSlot",
+        )) as TimeSlot | null;
+        if (
+          savedTimeSlot &&
+          ["Morning", "Evening", "Night"].includes(savedTimeSlot)
+        ) {
+          setCurrentTimeSlot(savedTimeSlot);
+        } else {
+          setCurrentTimeSlot(null);
         }
       }
 
-      // Load gym name if available
       if (userData?.gymId) {
         const gymDoc = await getDoc(doc(db, "gyms", userData.gymId));
         if (gymDoc.exists()) {
@@ -118,6 +124,46 @@ const TimeSlotPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const loadMemberCounts = async () => {
+    if (!userData?.gymId) return;
+
+    setLoadingCounts(true);
+    try {
+      const counts = { Morning: 0, Evening: 0, Night: 0 };
+
+      // Query for each time slot
+      for (const slot of ["Morning", "Evening", "Night"] as TimeSlot[]) {
+        const q = query(
+          collection(db, "users"),
+          where("gymId", "==", userData.gymId),
+          where("timeSlot", "==", slot),
+          where("enrollmentStatus", "==", "approved"),
+        );
+
+        const querySnapshot = await getDocs(q);
+        counts[slot] = querySnapshot.size;
+      }
+
+      setMemberCounts(counts);
+    } catch (error) {
+      console.error("Error loading member counts:", error);
+    } finally {
+      setLoadingCounts(false);
+    }
+  };
+
+  const getCrowdLevel = (
+    count: number,
+  ): { label: string; color: string; icon: string } => {
+    if (count === 0)
+      return { label: "Empty", color: "#10b981", icon: "checkmark-circle" };
+    if (count <= 10)
+      return { label: "Low", color: "#4ade80", icon: "trending-down" };
+    if (count <= 25)
+      return { label: "Medium", color: "#fbbf24", icon: "people" };
+    return { label: "High", color: "#f87171", icon: "trending-up" };
   };
 
   const getCurrentTimeSlotDetails = () => {
@@ -137,18 +183,20 @@ const TimeSlotPage: React.FC = () => {
 
     setChangingSlot(true);
     try {
-      // Update in Firestore
       await updateDoc(doc(db, "users", userData.uid), {
         timeSlot: selectedSlot,
         timeSlotUpdatedAt: new Date(),
       });
 
-      // Update local state and AsyncStorage
-      setCurrentTimeSlot(selectedSlot);
       await AsyncStorage.setItem("userTimeSlot", selectedSlot);
+      await refreshUserData();
 
+      setCurrentTimeSlot(selectedSlot);
       setShowChangeModal(false);
       setSelectedSlot(null);
+
+      // Reload counts after change
+      await loadMemberCounts();
 
       Alert.alert(
         "Success!",
@@ -179,7 +227,7 @@ const TimeSlotPage: React.FC = () => {
     return (
       <View style={styles.loadingContainer}>
         <StatusBar barStyle="light-content" backgroundColor="#0a0f1a" />
-        <ActivityIndicator size="large" color="#3b82f6" />
+        <ActivityIndicator size="large" color="#4ade80" />
         <Text style={styles.loadingText}>Loading...</Text>
       </View>
     );
@@ -197,7 +245,6 @@ const TimeSlotPage: React.FC = () => {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Header with Back Button */}
         <View style={styles.header}>
           <TouchableOpacity
             onPress={() => router.back()}
@@ -206,13 +253,12 @@ const TimeSlotPage: React.FC = () => {
             <Ionicons name="arrow-back" size={24} color="#e9eef7" />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Time Slot</Text>
-          <View style={{ width: 40 }} /> {/* Spacer for alignment */}
+          <View style={{ width: 40 }} />
         </View>
 
-        {/* Current Time Slot Card */}
         <View style={styles.currentSlotCard}>
           <View style={styles.cardHeader}>
-            <Ionicons name="time-outline" size={28} color="#3b82f6" />
+            <Ionicons name="time-outline" size={28} color="#4ade80" />
             <Text style={styles.cardTitle}>Your Current Time Slot</Text>
           </View>
 
@@ -250,14 +296,12 @@ const TimeSlotPage: React.FC = () => {
               <View style={styles.slotStatusContainer}>
                 <View style={styles.statusBadge}>
                   <View
-                    style={[styles.statusDot, { backgroundColor: "#10b981" }]}
+                    style={[styles.statusDot, { backgroundColor: "#4ade80" }]}
                   />
                   <Text style={styles.statusText}>Active</Text>
                 </View>
                 <Text style={styles.lastUpdated}>
-                  {gymName
-                    ? `Active for ${gymName}`
-                    : "Ready for your workouts"}
+                  {memberCounts[currentSlotDetails.name]} members in this slot
                 </Text>
               </View>
             </>
@@ -273,7 +317,6 @@ const TimeSlotPage: React.FC = () => {
           )}
         </View>
 
-        {/* Change Time Slot Button */}
         <TouchableOpacity
           style={styles.changeButton}
           onPress={() => setShowChangeModal(true)}
@@ -285,7 +328,56 @@ const TimeSlotPage: React.FC = () => {
           </Text>
         </TouchableOpacity>
 
-        {/* Benefits Section */}
+        {/* Crowd Overview */}
+        <View style={styles.crowdOverview}>
+          <Text style={styles.crowdTitle}>Current Crowd Levels</Text>
+          {timeSlots.map((slot) => {
+            const crowd = getCrowdLevel(memberCounts[slot.name]);
+            return (
+              <View key={slot.name} style={styles.crowdItem}>
+                <View style={styles.crowdLeft}>
+                  <View
+                    style={[
+                      styles.crowdIcon,
+                      { backgroundColor: `${slot.color}20` },
+                    ]}
+                  >
+                    <Ionicons
+                      name={slot.icon as any}
+                      size={20}
+                      color={slot.color}
+                    />
+                  </View>
+                  <View>
+                    <Text style={styles.crowdSlotName}>{slot.name}</Text>
+                    <Text style={styles.crowdSlotTime}>{slot.timeRange}</Text>
+                  </View>
+                </View>
+                <View style={styles.crowdRight}>
+                  <View
+                    style={[
+                      styles.crowdBadge,
+                      { backgroundColor: `${crowd.color}20` },
+                    ]}
+                  >
+                    <Ionicons
+                      name={crowd.icon as any}
+                      size={14}
+                      color={crowd.color}
+                    />
+                    <Text style={[styles.crowdLabel, { color: crowd.color }]}>
+                      {crowd.label}
+                    </Text>
+                  </View>
+                  <Text style={styles.crowdCount}>
+                    {memberCounts[slot.name]} members
+                  </Text>
+                </View>
+              </View>
+            );
+          })}
+        </View>
+
         <View style={styles.benefitsCard}>
           <Text style={styles.benefitsTitle}>
             Benefits of Setting a Time Slot
@@ -293,7 +385,7 @@ const TimeSlotPage: React.FC = () => {
 
           <View style={styles.benefitItem}>
             <View style={styles.benefitIcon}>
-              <Ionicons name="people-outline" size={20} color="#3b82f6" />
+              <Ionicons name="people-outline" size={20} color="#4ade80" />
             </View>
             <View style={styles.benefitTextContainer}>
               <Text style={styles.benefitItemTitle}>Avoid Crowds</Text>
@@ -305,7 +397,7 @@ const TimeSlotPage: React.FC = () => {
 
           <View style={styles.benefitItem}>
             <View style={styles.benefitIcon}>
-              <Ionicons name="calendar-outline" size={20} color="#3b82f6" />
+              <Ionicons name="calendar-outline" size={20} color="#4ade80" />
             </View>
             <View style={styles.benefitTextContainer}>
               <Text style={styles.benefitItemTitle}>Better Planning</Text>
@@ -317,7 +409,7 @@ const TimeSlotPage: React.FC = () => {
 
           <View style={styles.benefitItem}>
             <View style={styles.benefitIcon}>
-              <Ionicons name="trending-up-outline" size={20} color="#3b82f6" />
+              <Ionicons name="trending-up-outline" size={20} color="#4ade80" />
             </View>
             <View style={styles.benefitTextContainer}>
               <Text style={styles.benefitItemTitle}>Improved Consistency</Text>
@@ -328,14 +420,12 @@ const TimeSlotPage: React.FC = () => {
           </View>
         </View>
 
-        {/* Time Greeting */}
         <View style={styles.greetingContainer}>
           <Ionicons name="happy-outline" size={24} color="#fbbf24" />
           <Text style={styles.greetingText}>{getCurrentTimeGreeting()}</Text>
         </View>
       </ScrollView>
 
-      {/* Change Time Slot Modal */}
       <Modal visible={showChangeModal} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -353,65 +443,94 @@ const TimeSlotPage: React.FC = () => {
                 Choose your preferred workout time
               </Text>
 
-              {timeSlots.map((slot) => (
-                <TouchableOpacity
-                  key={slot.name}
-                  style={[
-                    styles.slotOption,
-                    selectedSlot === slot.name && styles.slotOptionSelected,
-                    currentTimeSlot === slot.name && styles.currentSlotOption,
-                  ]}
-                  onPress={() => handleSelectSlot(slot.name)}
-                  activeOpacity={0.7}
-                >
-                  <View
+              {timeSlots.map((slot) => {
+                const crowd = getCrowdLevel(memberCounts[slot.name]);
+                return (
+                  <TouchableOpacity
+                    key={slot.name}
                     style={[
-                      styles.optionIconContainer,
-                      { backgroundColor: slot.color },
+                      styles.slotOption,
+                      selectedSlot === slot.name && styles.slotOptionSelected,
+                      currentTimeSlot === slot.name && styles.currentSlotOption,
                     ]}
+                    onPress={() => handleSelectSlot(slot.name)}
+                    activeOpacity={0.7}
                   >
-                    <Ionicons
-                      name={slot.icon as any}
-                      size={24}
-                      color="#0a0f1a"
-                    />
-                  </View>
+                    <View
+                      style={[
+                        styles.optionIconContainer,
+                        { backgroundColor: slot.color },
+                      ]}
+                    >
+                      <Ionicons
+                        name={slot.icon as any}
+                        size={24}
+                        color="#0a0f1a"
+                      />
+                    </View>
 
-                  <View style={styles.optionInfo}>
-                    <View style={styles.optionHeader}>
-                      <Text style={styles.optionName}>{slot.name}</Text>
-                      {currentTimeSlot === slot.name && (
-                        <View style={styles.currentBadge}>
-                          <Text style={styles.currentBadgeText}>Current</Text>
+                    <View style={styles.optionInfo}>
+                      <View style={styles.optionHeader}>
+                        <Text style={styles.optionName}>{slot.name}</Text>
+                        {currentTimeSlot === slot.name && (
+                          <View style={styles.currentBadge}>
+                            <Text style={styles.currentBadgeText}>Current</Text>
+                          </View>
+                        )}
+                      </View>
+                      <Text style={styles.optionTime}>{slot.timeRange}</Text>
+                      <Text style={styles.optionDescription}>
+                        {slot.description}
+                      </Text>
+
+                      {/* Crowd indicator in modal */}
+                      <View style={styles.optionCrowd}>
+                        <View
+                          style={[
+                            styles.optionCrowdBadge,
+                            { backgroundColor: `${crowd.color}20` },
+                          ]}
+                        >
+                          <Ionicons
+                            name={crowd.icon as any}
+                            size={12}
+                            color={crowd.color}
+                          />
+                          <Text
+                            style={[
+                              styles.optionCrowdText,
+                              { color: crowd.color },
+                            ]}
+                          >
+                            {crowd.label}
+                          </Text>
                         </View>
+                        <Text style={styles.optionMemberCount}>
+                          {memberCounts[slot.name]} members
+                        </Text>
+                      </View>
+                    </View>
+
+                    <View style={styles.optionSelector}>
+                      {selectedSlot === slot.name ? (
+                        <Ionicons
+                          name="checkmark-circle"
+                          size={28}
+                          color={slot.color}
+                        />
+                      ) : (
+                        <View
+                          style={[
+                            styles.selectorCircle,
+                            { borderColor: slot.color },
+                          ]}
+                        />
                       )}
                     </View>
-                    <Text style={styles.optionTime}>{slot.timeRange}</Text>
-                    <Text style={styles.optionDescription}>
-                      {slot.description}
-                    </Text>
-                  </View>
+                  </TouchableOpacity>
+                );
+              })}
 
-                  <View style={styles.optionSelector}>
-                    {selectedSlot === slot.name ? (
-                      <Ionicons
-                        name="checkmark-circle"
-                        size={28}
-                        color={slot.color}
-                      />
-                    ) : (
-                      <View
-                        style={[
-                          styles.selectorCircle,
-                          { borderColor: slot.color },
-                        ]}
-                      />
-                    )}
-                  </View>
-                </TouchableOpacity>
-              ))}
-
-              {/* Confirmation Buttons */}
               <View style={styles.modalButtons}>
                 <TouchableOpacity
                   style={[styles.modalButton, styles.cancelButton]}
@@ -478,7 +597,7 @@ const styles = StyleSheet.create({
     width: width * 0.6,
     height: width * 0.6,
     borderRadius: width * 0.3,
-    backgroundColor: "rgba(59, 130, 246, 0.06)",
+    backgroundColor: "rgba(74, 222, 128, 0.06)",
     top: -width * 0.2,
     right: -width * 0.2,
   },
@@ -487,7 +606,7 @@ const styles = StyleSheet.create({
     width: width * 0.4,
     height: width * 0.4,
     borderRadius: width * 0.2,
-    backgroundColor: "rgba(139, 92, 246, 0.05)",
+    backgroundColor: "rgba(74, 222, 128, 0.05)",
     bottom: height * 0.3,
     left: -width * 0.15,
   },
@@ -518,7 +637,7 @@ const styles = StyleSheet.create({
     padding: 20,
     marginBottom: 20,
     borderWidth: 1,
-    borderColor: "rgba(59, 130, 246, 0.2)",
+    borderColor: "rgba(74, 222, 128, 0.2)",
   },
   cardHeader: {
     flexDirection: "row",
@@ -577,7 +696,7 @@ const styles = StyleSheet.create({
   statusBadge: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "rgba(16, 185, 129, 0.1)",
+    backgroundColor: "rgba(74, 222, 128, 0.1)",
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 16,
@@ -591,7 +710,7 @@ const styles = StyleSheet.create({
   statusText: {
     fontSize: 12,
     fontWeight: "600",
-    color: "#10b981",
+    color: "#4ade80",
   },
   lastUpdated: {
     fontSize: 12,
@@ -616,7 +735,7 @@ const styles = StyleSheet.create({
     maxWidth: "80%",
   },
   changeButton: {
-    backgroundColor: "#3b82f6",
+    backgroundColor: "#4ade80",
     borderRadius: 16,
     paddingVertical: 18,
     flexDirection: "row",
@@ -624,7 +743,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 12,
     marginBottom: 24,
-    shadowColor: "#3b82f6",
+    shadowColor: "#4ade80",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
@@ -634,6 +753,70 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "700",
     color: "#0a0f1a",
+  },
+  crowdOverview: {
+    backgroundColor: "rgba(15, 23, 42, 0.8)",
+    borderRadius: 20,
+    padding: 20,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.06)",
+  },
+  crowdTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#e9eef7",
+    marginBottom: 16,
+  },
+  crowdItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255, 255, 255, 0.04)",
+  },
+  crowdLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  crowdIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  crowdSlotName: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#e9eef7",
+  },
+  crowdSlotTime: {
+    fontSize: 12,
+    color: "#64748b",
+    marginTop: 2,
+  },
+  crowdRight: {
+    alignItems: "flex-end",
+  },
+  crowdBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginBottom: 4,
+  },
+  crowdLabel: {
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  crowdCount: {
+    fontSize: 12,
+    color: "#94a3b8",
   },
   benefitsCard: {
     backgroundColor: "rgba(15, 23, 42, 0.8)",
@@ -658,7 +841,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: "rgba(59, 130, 246, 0.1)",
+    backgroundColor: "rgba(74, 222, 128, 0.1)",
     alignItems: "center",
     justifyContent: "center",
     marginRight: 12,
@@ -693,7 +876,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#fbbf24",
   },
-  // Modal Styles
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0, 0, 0, 0.7)",
@@ -740,12 +922,12 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.06)",
   },
   slotOptionSelected: {
-    borderColor: "#3b82f6",
-    backgroundColor: "rgba(59, 130, 246, 0.05)",
+    borderColor: "#4ade80",
+    backgroundColor: "rgba(74, 222, 128, 0.05)",
   },
   currentSlotOption: {
-    borderColor: "rgba(16, 185, 129, 0.3)",
-    backgroundColor: "rgba(16, 185, 129, 0.05)",
+    borderColor: "rgba(74, 222, 128, 0.3)",
+    backgroundColor: "rgba(74, 222, 128, 0.05)",
   },
   optionIconContainer: {
     width: 48,
@@ -770,7 +952,7 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   currentBadge: {
-    backgroundColor: "rgba(16, 185, 129, 0.1)",
+    backgroundColor: "rgba(74, 222, 128, 0.1)",
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 12,
@@ -778,7 +960,7 @@ const styles = StyleSheet.create({
   currentBadgeText: {
     fontSize: 10,
     fontWeight: "600",
-    color: "#10b981",
+    color: "#4ade80",
   },
   optionTime: {
     fontSize: 13,
@@ -789,6 +971,28 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#64748b",
     lineHeight: 16,
+    marginBottom: 8,
+  },
+  optionCrowd: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  optionCrowdBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  optionCrowdText: {
+    fontSize: 10,
+    fontWeight: "600",
+  },
+  optionMemberCount: {
+    fontSize: 11,
+    color: "#64748b",
   },
   optionSelector: {
     marginLeft: 8,
@@ -822,7 +1026,7 @@ const styles = StyleSheet.create({
     color: "#e9eef7",
   },
   confirmButton: {
-    backgroundColor: "#3b82f6",
+    backgroundColor: "#4ade80",
   },
   confirmButtonDisabled: {
     backgroundColor: "#374151",

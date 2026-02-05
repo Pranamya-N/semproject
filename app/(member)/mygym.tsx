@@ -2,27 +2,29 @@ import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
 import {
-    addDoc,
-    collection,
-    doc,
-    getDoc,
-    serverTimestamp,
-    updateDoc,
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  serverTimestamp,
+  setDoc,
+  updateDoc,
 } from "firebase/firestore";
 import React, { useEffect, useRef, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Dimensions,
-    Modal,
-    Platform,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Dimensions,
+  Modal,
+  Platform,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { useAuth } from "../context/AuthContext";
 import { db } from "../lib/firebase";
@@ -145,6 +147,33 @@ const MyGym: React.FC = () => {
     setStreak(newStreak);
     await AsyncStorage.setItem("streak", String(newStreak));
     await AsyncStorage.setItem("lastCheckInDate", now.toDateString());
+
+    // Track active check-in in Firestore for real-time crowd counting
+    if (userData?.uid && userData?.gymId) {
+      try {
+        const currentHour = now.getHours();
+        let currentTimeSlot: "Morning" | "Evening" | "Night";
+
+        // Determine time slot based on current time
+        if (currentHour >= 6 && currentHour < 16) {
+          currentTimeSlot = "Morning";
+        } else if (currentHour >= 16 && currentHour < 21) {
+          currentTimeSlot = "Evening";
+        } else {
+          currentTimeSlot = "Night";
+        }
+
+        await setDoc(doc(db, "activeCheckIns", userData.uid), {
+          userId: userData.uid,
+          userName: userData.displayName,
+          gymId: userData.gymId,
+          timeSlot: currentTimeSlot,
+          checkInTime: serverTimestamp(),
+        });
+      } catch (error) {
+        console.error("Error tracking check-in:", error);
+      }
+    }
   };
 
   const performCheckOut = async () => {
@@ -157,7 +186,7 @@ const MyGym: React.FC = () => {
 
     const duration = timerSeconds;
     const now = new Date();
-    const dateKey = now.toISOString().split("T")[0]; // "YYYY-MM-DD"
+    const dateKey = now.toISOString().split("T")[0];
 
     setTotalDuration((prev) => prev + duration);
 
@@ -172,7 +201,6 @@ const MyGym: React.FC = () => {
       const historyJson = await AsyncStorage.getItem("checkInHistory");
       const history = historyJson ? JSON.parse(historyJson) : [];
 
-      // Check if today already has an entry, update it or add new
       const existingIndex = history.findIndex(
         (record: any) => record.date === dateKey,
       );
@@ -185,6 +213,15 @@ const MyGym: React.FC = () => {
       await AsyncStorage.setItem("checkInHistory", JSON.stringify(history));
     } catch (error) {
       console.error("Error saving check-in history:", error);
+    }
+
+    // Remove from active check-ins in Firestore
+    if (userData?.uid) {
+      try {
+        await deleteDoc(doc(db, "activeCheckIns", userData.uid));
+      } catch (error) {
+        console.error("Error removing check-in:", error);
+      }
     }
 
     setTimerSeconds(0);
@@ -854,7 +891,6 @@ const styles = StyleSheet.create({
   },
   statLabel: { fontSize: 11, color: "#64748b", marginTop: 4 },
   buttonsContainer: { gap: 12, marginBottom: 30 },
-  Container: { gap: 12, marginBottom: 30 },
   buttonInner: { flexDirection: "row", alignItems: "center", gap: 10 },
   timeSlotBtn: {
     flexDirection: "row",
