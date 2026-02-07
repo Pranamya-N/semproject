@@ -7,7 +7,9 @@ import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Dimensions,
+  FlatList,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   ScrollView,
   StatusBar,
@@ -21,6 +23,14 @@ import { auth, db } from "./lib/firebase";
 
 const { width, height } = Dimensions.get("window");
 const isSmall = height < 700;
+
+// Country code options with Nepal as default
+const countryCodes = [
+  { code: "+977", flag: "🇳🇵", name: "Nepal", maxLength: 10 },
+  { code: "+91", flag: "🇮🇳", name: "India", maxLength: 10 },
+  { code: "+1", flag: "🇺🇸", name: "USA", maxLength: 10 },
+  { code: "+44", flag: "🇬🇧", name: "UK", maxLength: 10 },
+];
 
 const errorMessage = (code?: string): string => {
   switch (code) {
@@ -38,6 +48,22 @@ const errorMessage = (code?: string): string => {
 };
 
 const isEmailValid = (val: string): boolean => /\S+@\S+\.\S+/.test(val);
+
+// Phone validation
+const isValidPhone = (phone: string, maxLength: number): boolean => {
+  const cleaned = phone.replace(/\D/g, "");
+  return cleaned.length === maxLength;
+};
+
+// Format phone as XXX-XXX-XXXX
+const formatPhoneNumber = (value: string): string => {
+  const cleaned = value.replace(/\D/g, "");
+  const limited = cleaned.slice(0, 10);
+
+  if (limited.length <= 3) return limited;
+  if (limited.length <= 6) return `${limited.slice(0, 3)}-${limited.slice(3)}`;
+  return `${limited.slice(0, 3)}-${limited.slice(3, 6)}-${limited.slice(6, 10)}`;
+};
 
 // Password strength checker
 const checkPasswordStrength = (password: string) => {
@@ -77,6 +103,7 @@ const Signup: React.FC = () => {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -93,6 +120,8 @@ const Signup: React.FC = () => {
     color: "#f87171",
     score: 0,
   });
+  const [showCountryPicker, setShowCountryPicker] = useState(false);
+  const [selectedCountry, setSelectedCountry] = useState(countryCodes[0]); // Nepal as default
 
   // Update password strength when password changes
   useEffect(() => {
@@ -120,18 +149,41 @@ const Signup: React.FC = () => {
   const toggleConfirmPasswordVisibility = () =>
     setShowConfirmPassword(!showConfirmPassword);
 
+  const handlePhoneChange = (text: string) => {
+    const formatted = formatPhoneNumber(text);
+    setPhone(formatted);
+  };
+
+  const handleCountrySelect = (country: (typeof countryCodes)[0]) => {
+    setSelectedCountry(country);
+    setPhone(""); // Clear phone when country changes
+    setShowCountryPicker(false);
+  };
+
   const handleSignup = async (): Promise<void> => {
     const trimmedEmail = email.trim();
     const trimmedName = name.trim();
+    const cleanedPhone = phone.replace(/\D/g, "");
 
     // Validation
-    if (!trimmedName || !trimmedEmail || !password || !confirmPassword) {
+    if (
+      !trimmedName ||
+      !trimmedEmail ||
+      !cleanedPhone ||
+      !password ||
+      !confirmPassword
+    ) {
       setErrorText("Please fill all fields.");
       return;
     }
 
     if (!isEmailValid(trimmedEmail)) {
       setErrorText("Please enter a valid email address.");
+      return;
+    }
+
+    if (!isValidPhone(phone, selectedCountry.maxLength)) {
+      setErrorText(`Phone number must be ${selectedCountry.maxLength} digits.`);
       return;
     }
 
@@ -183,9 +235,14 @@ const Signup: React.FC = () => {
         displayName: trimmedName,
       });
 
+      // Create full phone number with country code
+      const fullPhoneNumber = `${selectedCountry.code}${cleanedPhone}`;
+
       await setDoc(doc(db, "users", userCred.user.uid), {
         displayName: trimmedName,
         email: trimmedEmail,
+        phone: fullPhoneNumber,
+        hasProvidedPhone: true,
         role: "member",
         gymId: null,
         enrollmentStatus: "none",
@@ -214,6 +271,25 @@ const Signup: React.FC = () => {
         {label}
       </Text>
     </View>
+  );
+
+  const renderCountryItem = ({ item }: { item: (typeof countryCodes)[0] }) => (
+    <TouchableOpacity
+      style={[
+        styles.countryItem,
+        selectedCountry.code === item.code && styles.selectedCountryItem,
+      ]}
+      onPress={() => handleCountrySelect(item)}
+    >
+      <Text style={styles.countryFlag}>{item.flag}</Text>
+      <View style={styles.countryInfo}>
+        <Text style={styles.countryName}>{item.name}</Text>
+        <Text style={styles.countryCode}>{item.code}</Text>
+      </View>
+      {selectedCountry.code === item.code && (
+        <Ionicons name="checkmark" size={20} color="#4ade80" />
+      )}
+    </TouchableOpacity>
   );
 
   return (
@@ -282,6 +358,67 @@ const Signup: React.FC = () => {
                 editable={!loading}
               />
             </View>
+
+            {/* Phone Input */}
+            <View style={styles.inputWrapper}>
+              <TouchableOpacity
+                style={styles.countryCodeButton}
+                onPress={() => setShowCountryPicker(true)}
+                disabled={loading}
+              >
+                <Text style={styles.countryFlagText}>
+                  {selectedCountry.flag}
+                </Text>
+                <Text style={styles.countryCodeText}>
+                  {selectedCountry.code}
+                </Text>
+                <Ionicons name="chevron-down" size={16} color="#64748b" />
+              </TouchableOpacity>
+
+              <TextInput
+                placeholder={`Phone (${selectedCountry.maxLength} digits)`}
+                placeholderTextColor="#64748b"
+                style={[styles.input, styles.phoneInput]}
+                value={phone}
+                onChangeText={handlePhoneChange}
+                keyboardType="phone-pad"
+                maxLength={12} // For formatting: 123-456-7890
+                editable={!loading}
+              />
+            </View>
+
+            {/* Phone Validation Indicator */}
+            {phone.length > 0 && (
+              <View style={styles.matchIndicator}>
+                <Ionicons
+                  name={
+                    isValidPhone(phone, selectedCountry.maxLength)
+                      ? "checkmark-circle"
+                      : "close-circle"
+                  }
+                  size={16}
+                  color={
+                    isValidPhone(phone, selectedCountry.maxLength)
+                      ? "#4ade80"
+                      : "#f87171"
+                  }
+                />
+                <Text
+                  style={[
+                    styles.matchText,
+                    {
+                      color: isValidPhone(phone, selectedCountry.maxLength)
+                        ? "#4ade80"
+                        : "#f87171",
+                    },
+                  ]}
+                >
+                  {isValidPhone(phone, selectedCountry.maxLength)
+                    ? `Valid ${selectedCountry.name} number`
+                    : `${selectedCountry.maxLength} digits required`}
+                </Text>
+              </View>
+            )}
 
             {/* Password Input */}
             <View style={styles.inputWrapper}>
@@ -442,10 +579,16 @@ const Signup: React.FC = () => {
               style={[
                 styles.primaryButton,
                 loading && styles.buttonDisabled,
-                passwordStrength.score < 3 && styles.buttonDisabled,
+                (passwordStrength.score < 3 ||
+                  !isValidPhone(phone, selectedCountry.maxLength)) &&
+                  styles.buttonDisabled,
               ]}
               onPress={handleSignup}
-              disabled={loading || passwordStrength.score < 3}
+              disabled={
+                loading ||
+                passwordStrength.score < 3 ||
+                !isValidPhone(phone, selectedCountry.maxLength)
+              }
             >
               {loading ? (
                 <ActivityIndicator color="#0a0f1a" />
@@ -467,6 +610,33 @@ const Signup: React.FC = () => {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* Country Picker Modal */}
+      <Modal
+        visible={showCountryPicker}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowCountryPicker(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Select Country</Text>
+              <TouchableOpacity onPress={() => setShowCountryPicker(false)}>
+                <Ionicons name="close" size={24} color="#64748b" />
+              </TouchableOpacity>
+            </View>
+
+            <FlatList
+              data={countryCodes}
+              renderItem={renderCountryItem}
+              keyExtractor={(item) => item.code}
+              style={styles.countryList}
+              showsVerticalScrollIndicator={false}
+            />
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -550,9 +720,30 @@ const styles = StyleSheet.create({
     color: "#e9eef7",
     fontSize: 15,
   },
+  phoneInput: {
+    paddingLeft: 8,
+  },
   eyeButton: {
     paddingHorizontal: 14,
     paddingVertical: 14,
+  },
+  countryCodeButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    borderRightWidth: 1,
+    borderRightColor: "rgba(255, 255, 255, 0.06)",
+    gap: 6,
+    minWidth: 100,
+  },
+  countryFlagText: {
+    fontSize: 20,
+  },
+  countryCodeText: {
+    color: "#e9eef7",
+    fontSize: 15,
+    fontWeight: "500",
   },
   passwordStrengthContainer: {
     backgroundColor: "rgba(30, 41, 59, 0.5)",
@@ -609,6 +800,7 @@ const styles = StyleSheet.create({
     gap: 8,
     marginTop: 8,
     marginBottom: 12,
+    paddingHorizontal: 4,
   },
   matchText: {
     fontSize: 13,
@@ -664,5 +856,62 @@ const styles = StyleSheet.create({
   linkAccent: {
     color: "#4ade80",
     fontWeight: "700",
+  },
+  // Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "flex-end",
+  },
+  modalContent: {
+    backgroundColor: "#1e293b",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: height * 0.6,
+    paddingBottom: Platform.OS === "ios" ? 34 : 20,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255, 255, 255, 0.1)",
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#ffffff",
+  },
+  countryList: {
+    paddingHorizontal: 16,
+  },
+  countryItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    marginVertical: 4,
+  },
+  selectedCountryItem: {
+    backgroundColor: "rgba(74, 222, 128, 0.1)",
+  },
+  countryFlag: {
+    fontSize: 24,
+    marginRight: 12,
+  },
+  countryInfo: {
+    flex: 1,
+  },
+  countryName: {
+    color: "#ffffff",
+    fontSize: 16,
+    fontWeight: "500",
+  },
+  countryCode: {
+    color: "#94a3b8",
+    fontSize: 14,
   },
 });

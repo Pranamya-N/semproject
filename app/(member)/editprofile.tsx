@@ -33,6 +33,22 @@ const EditProfile: React.FC = () => {
     return displayName !== userData?.displayName;
   };
 
+  // Format phone number for display
+  const formatPhoneForDisplay = (phone: string | null) => {
+    if (!phone) return "Not provided";
+
+    // Check if phone starts with country code
+    if (phone.startsWith("+977")) {
+      const digits = phone.slice(4); // Remove +977
+      if (digits.length === 10) {
+        return `+977 ${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6, 10)}`;
+      }
+    }
+
+    // For other formats or unexpected lengths
+    return phone;
+  };
+
   const handleBackPress = () => {
     if (hasUnsavedChanges()) {
       Alert.alert(
@@ -106,6 +122,23 @@ const EditProfile: React.FC = () => {
 
   const handleCancel = () => {
     handleBackPress();
+  };
+
+  const handleEditPhone = () => {
+    Alert.alert(
+      "Edit Phone Number",
+      "To change your phone number, please contact support or log out and log back in to update.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Contact Support",
+          onPress: () => {
+            // You can add support contact logic here
+            console.log("Contact support");
+          },
+        },
+      ],
+    );
   };
 
   return (
@@ -187,6 +220,41 @@ const EditProfile: React.FC = () => {
               <Text style={styles.helperText}>
                 Email cannot be changed for security reasons
               </Text>
+            </View>
+
+            {/* Phone Number (Read-only) */}
+            <View style={styles.inputGroup}>
+              <View style={styles.inputLabelRow}>
+                <Ionicons name="call-outline" size={16} color="#94a3b8" />
+                <Text style={styles.label}>Phone Number</Text>
+                {userData?.hasProvidedPhone && (
+                  <View style={styles.verifiedBadge}>
+                    <Ionicons name="checkmark" size={12} color="#10b981" />
+                  </View>
+                )}
+              </View>
+              <View style={styles.readOnlyContainer}>
+                <Text
+                  style={[
+                    styles.readOnlyText,
+                    !userData?.hasProvidedPhone && styles.phoneNotProvided,
+                  ]}
+                >
+                  {formatPhoneForDisplay(userData?.phone || null)}
+                </Text>
+              </View>
+              <View style={styles.phoneInfoRow}>
+                <Text style={styles.helperText}>
+                  {userData?.hasProvidedPhone
+                    ? "Phone verified. Contact support to change."
+                    : "Phone not provided. Log out and log in to add phone."}
+                </Text>
+                {userData?.hasProvidedPhone && (
+                  <TouchableOpacity onPress={handleEditPhone}>
+                    <Text style={styles.editPhoneText}>Edit</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
             </View>
 
             {/* Role (Read-only) */}
@@ -373,6 +441,13 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#94a3b8",
   },
+  verifiedBadge: {
+    backgroundColor: "rgba(16, 185, 129, 0.1)",
+    borderRadius: 10,
+    padding: 4,
+    borderWidth: 1,
+    borderColor: "rgba(16, 185, 129, 0.3)",
+  },
   input: {
     fontSize: 16,
     color: "#e9eef7",
@@ -398,12 +473,27 @@ const styles = StyleSheet.create({
     color: "#94a3b8",
     fontWeight: "500",
   },
+  phoneNotProvided: {
+    color: "#f87171",
+    fontStyle: "italic",
+  },
+  phoneInfoRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: 8,
+  },
   helperText: {
     fontSize: 12,
     color: "#64748b",
-    marginTop: 8,
-    marginLeft: 4,
     lineHeight: 16,
+    flex: 1,
+  },
+  editPhoneText: {
+    fontSize: 12,
+    color: "#4ade80",
+    fontWeight: "600",
+    marginLeft: 8,
   },
   infoCard: {
     flexDirection: "row",

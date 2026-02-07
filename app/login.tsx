@@ -2,11 +2,15 @@ import "@/global.css";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { signInWithEmailAndPassword } from "firebase/auth";
+import { doc, getDoc, updateDoc } from "firebase/firestore";
 import React, { useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
+  FlatList,
   Keyboard,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   SafeAreaView,
   ScrollView,
@@ -19,7 +23,7 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
-import { auth } from "./lib/firebase";
+import { auth, db } from "./lib/firebase";
 
 const errorMessage = (code?: string): string => {
   const messages: { [key: string]: string } = {
@@ -34,6 +38,30 @@ const errorMessage = (code?: string): string => {
 };
 
 const isEmailValid = (val: string): boolean => /\S+@\S+\.\S+/.test(val);
+
+// Country codes
+const countryCodes = [
+  { code: "+977", flag: "🇳🇵", name: "Nepal", maxLength: 10 },
+  { code: "+91", flag: "🇮🇳", name: "India", maxLength: 10 },
+  { code: "+1", flag: "🇺🇸", name: "USA", maxLength: 10 },
+  { code: "+44", flag: "🇬🇧", name: "UK", maxLength: 10 },
+];
+
+// Phone validation
+const isValidPhone = (phone: string, maxLength: number): boolean => {
+  const cleaned = phone.replace(/\D/g, "");
+  return cleaned.length === maxLength;
+};
+
+// Format phone as XXX-XXX-XXXX
+const formatPhoneNumber = (value: string): string => {
+  const cleaned = value.replace(/\D/g, "");
+  const limited = cleaned.slice(0, 10);
+
+  if (limited.length <= 3) return limited;
+  if (limited.length <= 6) return `${limited.slice(0, 3)}-${limited.slice(3)}`;
+  return `${limited.slice(0, 3)}-${limited.slice(3, 6)}-${limited.slice(6, 10)}`;
+};
 
 const Login: React.FC = () => {
   const router = useRouter();
@@ -56,15 +84,34 @@ const Login: React.FC = () => {
     [width, height, isSmallDevice, isTablet],
   );
 
+  // Login states
   const [showPassword, setShowPassword] = useState<boolean>(false);
   const [email, setEmail] = useState<string>("");
   const [password, setPassword] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
   const [errorText, setErrorText] = useState<string>("");
 
+  // Phone verification states (shown only for users without phone)
+  const [showPhoneVerification, setShowPhoneVerification] = useState(false);
+  const [phone, setPhone] = useState("");
+  const [phoneLoading, setPhoneLoading] = useState(false);
+  const [showCountryPicker, setShowCountryPicker] = useState(false);
+  const [selectedCountry, setSelectedCountry] = useState(countryCodes[0]);
+
   const onSignup = (): void => router.push("/signup");
   const onForgotPassword = (): void => router.push("/forgot-password");
   const togglePasswordVisibility = (): void => setShowPassword(!showPassword);
+
+  const handlePhoneChange = (text: string) => {
+    const formatted = formatPhoneNumber(text);
+    setPhone(formatted);
+  };
+
+  const handleCountrySelect = (country: (typeof countryCodes)[0]) => {
+    setSelectedCountry(country);
+    setPhone("");
+    setShowCountryPicker(false);
+  };
 
   const handleLogin = async (): Promise<void> => {
     const trimmedEmail = email.trim();
@@ -81,10 +128,30 @@ const Login: React.FC = () => {
       setErrorText("");
 
       // Sign in user
-      await signInWithEmailAndPassword(auth, trimmedEmail, password);
+      const userCredential = await signInWithEmailAndPassword(
+        auth,
+        trimmedEmail,
+        password,
+      );
 
-      // ALWAYS redirect to home page after login
-      router.replace("/(member)/home" as any);
+      // Get user data from Firestore
+      const userDoc = await getDoc(doc(db, "users", userCredential.user.uid));
+
+      if (userDoc.exists()) {
+        const userData = userDoc.data();
+
+        // Check if phone is missing
+        if (!userData.hasProvidedPhone || !userData.phone) {
+          // Show phone verification
+          setShowPhoneVerification(true);
+        } else {
+          // Phone exists, go to home
+          router.replace("/(member)/home" as any);
+        }
+      } else {
+        // User document doesn't exist (shouldn't happen)
+        router.replace("/(member)/home" as any);
+      }
     } catch (err: any) {
       setErrorText(errorMessage(err?.code));
     } finally {
@@ -92,6 +159,369 @@ const Login: React.FC = () => {
     }
   };
 
+  const handlePhoneSubmit = async () => {
+    if (!isValidPhone(phone, selectedCountry.maxLength)) {
+      Alert.alert(
+        "Invalid Phone",
+        `Please enter ${selectedCountry.maxLength} digits`,
+      );
+      return;
+    }
+
+    try {
+      setPhoneLoading(true);
+      const user = auth.currentUser;
+
+      if (!user) {
+        Alert.alert("Error", "User not found");
+        return;
+      }
+
+      const cleanedPhone = phone.replace(/\D/g, "");
+      const fullPhoneNumber = `${selectedCountry.code}${cleanedPhone}`;
+
+      // Update user document with phone
+      await updateDoc(doc(db, "users", user.uid), {
+        phone: fullPhoneNumber,
+        hasProvidedPhone: true,
+      });
+
+      // Go to home
+      router.replace("/(member)/home" as any);
+    } catch (error) {
+      console.error("Error updating phone:", error);
+      Alert.alert("Error", "Failed to update phone number");
+    } finally {
+      setPhoneLoading(false);
+    }
+  };
+
+  const handleSkipPhone = () => {
+    Alert.alert(
+      "Skip Phone Verification",
+      "You can add phone number later from profile settings.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Skip",
+          onPress: () => {
+            router.replace("/(member)/home" as any);
+          },
+        },
+      ],
+    );
+  };
+
+  const renderCountryItem = ({ item }: { item: (typeof countryCodes)[0] }) => (
+    <TouchableOpacity
+      style={[
+        styles.countryItem,
+        selectedCountry.code === item.code && styles.selectedCountryItem,
+      ]}
+      onPress={() => handleCountrySelect(item)}
+    >
+      <Text style={styles.countryFlag}>{item.flag}</Text>
+      <View style={styles.countryInfo}>
+        <Text style={styles.countryName}>{item.name}</Text>
+        <Text style={styles.countryCode}>{item.code}</Text>
+      </View>
+      {selectedCountry.code === item.code && (
+        <Ionicons name="checkmark" size={20} color="#4ade80" />
+      )}
+    </TouchableOpacity>
+  );
+
+  // If showing phone verification modal
+  if (showPhoneVerification) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <KeyboardAvoidingView
+          style={styles.container}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
+        >
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+            <View style={styles.container}>
+              <StatusBar barStyle="light-content" backgroundColor="#0a0f1a" />
+
+              {/* Background Accents */}
+              <View
+                style={[
+                  styles.accentCircle,
+                  {
+                    width: width * 0.7,
+                    height: width * 0.7,
+                    borderRadius: (width * 0.7) / 2,
+                    top: -width * 0.25,
+                    right: -width * 0.2,
+                  },
+                ]}
+              />
+              <View
+                style={[
+                  styles.accentCircle,
+                  {
+                    width: width * 0.5,
+                    height: width * 0.5,
+                    borderRadius: (width * 0.5) / 2,
+                    backgroundColor: "rgba(59, 130, 246, 0.06)",
+                    bottom: height * 0.1,
+                    left: -width * 0.2,
+                  },
+                ]}
+              />
+
+              <ScrollView
+                contentContainerStyle={[
+                  styles.scrollContent,
+                  {
+                    paddingHorizontal: responsiveStyles.horizontalPadding,
+                    paddingTop: isSmallDevice ? height * 0.04 : height * 0.08,
+                    paddingBottom: height * 0.05,
+                  },
+                ]}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                bounces={false}
+              >
+                {/* Phone Verification Header */}
+                <View style={styles.headerSection}>
+                  <View
+                    style={[
+                      styles.logoCircle,
+                      {
+                        width: responsiveStyles.logoSize,
+                        height: responsiveStyles.logoSize,
+                        borderRadius: responsiveStyles.logoSize / 2,
+                      },
+                    ]}
+                  >
+                    <Ionicons
+                      name="phone-portrait-outline"
+                      size={isSmallDevice ? 32 : isTablet ? 48 : 40}
+                      color="#0a0f1a"
+                    />
+                  </View>
+
+                  <Text
+                    style={[
+                      styles.brandName,
+                      {
+                        fontSize: responsiveStyles.brandFontSize,
+                        marginTop: height * 0.015,
+                      },
+                    ]}
+                  >
+                    VERIFY PHONE
+                  </Text>
+
+                  <Text
+                    style={[
+                      styles.tagline,
+                      {
+                        fontSize: responsiveStyles.taglineFontSize,
+                        marginTop: height * 0.01,
+                        textAlign: "center",
+                      },
+                    ]}
+                  >
+                    Add your phone number to continue
+                  </Text>
+                </View>
+
+                {/* Phone Verification Card */}
+                <View
+                  style={[
+                    styles.card,
+                    {
+                      padding: responsiveStyles.cardPadding,
+                      maxWidth: isTablet ? 550 : "100%",
+                      alignSelf: "center",
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.cardSubtitle,
+                      {
+                        marginBottom: height * 0.025,
+                        fontSize: isTablet ? 15 : 13,
+                        textAlign: "center",
+                      },
+                    ]}
+                  >
+                    Please enter your phone number for account verification
+                  </Text>
+
+                  {/* Country Code + Phone Input */}
+                  <View
+                    style={[
+                      styles.inputWrapper,
+                      {
+                        height: responsiveStyles.inputHeight,
+                        marginBottom: height * 0.015,
+                      },
+                    ]}
+                  >
+                    <TouchableOpacity
+                      style={styles.countryCodeButton}
+                      onPress={() => setShowCountryPicker(true)}
+                    >
+                      <Text style={styles.countryFlagText}>
+                        {selectedCountry.flag}
+                      </Text>
+                      <Text style={styles.countryCodeText}>
+                        {selectedCountry.code}
+                      </Text>
+                      <Ionicons name="chevron-down" size={16} color="#64748b" />
+                    </TouchableOpacity>
+
+                    <TextInput
+                      placeholder={`Enter ${selectedCountry.maxLength} digit phone`}
+                      placeholderTextColor="#64748b"
+                      style={[styles.input, styles.phoneInput]}
+                      value={phone}
+                      onChangeText={handlePhoneChange}
+                      keyboardType="phone-pad"
+                      maxLength={12}
+                      autoFocus
+                    />
+                  </View>
+
+                  {/* Phone Validation Indicator */}
+                  {phone.length > 0 && (
+                    <View style={styles.phoneInfoContainer}>
+                      <Ionicons
+                        name={
+                          isValidPhone(phone, selectedCountry.maxLength)
+                            ? "checkmark-circle"
+                            : "close-circle"
+                        }
+                        size={16}
+                        color={
+                          isValidPhone(phone, selectedCountry.maxLength)
+                            ? "#4ade80"
+                            : "#f87171"
+                        }
+                      />
+                      <Text
+                        style={[
+                          styles.phoneInfoText,
+                          {
+                            color: isValidPhone(
+                              phone,
+                              selectedCountry.maxLength,
+                            )
+                              ? "#4ade80"
+                              : "#f87171",
+                          },
+                        ]}
+                      >
+                        {isValidPhone(phone, selectedCountry.maxLength)
+                          ? `Valid ${selectedCountry.name} number`
+                          : `${selectedCountry.maxLength} digits required`}
+                      </Text>
+                    </View>
+                  )}
+
+                  {/* Verify Button */}
+                  <TouchableOpacity
+                    style={[
+                      styles.primaryButton,
+                      {
+                        height: responsiveStyles.buttonHeight,
+                        marginBottom: height * 0.02,
+                        marginTop: height * 0.025,
+                      },
+                      (phoneLoading ||
+                        !isValidPhone(phone, selectedCountry.maxLength)) &&
+                        styles.buttonDisabled,
+                    ]}
+                    activeOpacity={0.75}
+                    onPress={handlePhoneSubmit}
+                    disabled={
+                      phoneLoading ||
+                      !isValidPhone(phone, selectedCountry.maxLength)
+                    }
+                  >
+                    {phoneLoading ? (
+                      <ActivityIndicator color="#0a0f1a" size="small" />
+                    ) : (
+                      <>
+                        <Text
+                          style={[
+                            styles.primaryButtonText,
+                            {
+                              fontSize: isSmallDevice ? 15 : isTablet ? 17 : 16,
+                            },
+                          ]}
+                        >
+                          Verify Phone
+                        </Text>
+                        <Ionicons
+                          name="checkmark-circle-outline"
+                          size={isSmallDevice ? 16 : isTablet ? 20 : 18}
+                          color="#0a0f1a"
+                        />
+                      </>
+                    )}
+                  </TouchableOpacity>
+
+                  {/* Skip Button */}
+                  <TouchableOpacity
+                    activeOpacity={0.7}
+                    onPress={handleSkipPhone}
+                    style={styles.skipButton}
+                    disabled={phoneLoading}
+                  >
+                    <Text
+                      style={[
+                        styles.skipButtonText,
+                        { fontSize: isTablet ? 14 : 12 },
+                      ]}
+                    >
+                      Skip for now
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </ScrollView>
+
+              {/* Country Picker Modal */}
+              <Modal
+                visible={showCountryPicker}
+                animationType="slide"
+                transparent={true}
+                onRequestClose={() => setShowCountryPicker(false)}
+              >
+                <View style={styles.modalOverlay}>
+                  <View style={styles.modalContent}>
+                    <View style={styles.modalHeader}>
+                      <Text style={styles.modalTitle}>Select Country</Text>
+                      <TouchableOpacity
+                        onPress={() => setShowCountryPicker(false)}
+                      >
+                        <Ionicons name="close" size={24} color="#64748b" />
+                      </TouchableOpacity>
+                    </View>
+
+                    <FlatList
+                      data={countryCodes}
+                      renderItem={renderCountryItem}
+                      keyExtractor={(item) => item.code}
+                      style={styles.countryList}
+                      showsVerticalScrollIndicator={false}
+                    />
+                  </View>
+                </View>
+              </Modal>
+            </View>
+          </TouchableWithoutFeedback>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    );
+  }
+
+  // Normal login screen
   return (
     <SafeAreaView style={styles.safeArea}>
       <KeyboardAvoidingView
@@ -434,7 +864,7 @@ const Login: React.FC = () => {
                   <Text
                     style={[styles.linkText, { fontSize: isTablet ? 15 : 13 }]}
                   >
-                    Don't have an account?{" "}
+                    {`Don't have an account?`}{" "}
                   </Text>
                   <Text
                     style={[
@@ -555,10 +985,42 @@ const styles = StyleSheet.create({
   passwordInput: {
     paddingRight: 50,
   },
+  phoneInput: {
+    paddingLeft: 8,
+  },
   eyeButton: {
     position: "absolute",
     right: 12,
     padding: 8,
+  },
+  countryCodeButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    borderRightWidth: 1,
+    borderRightColor: "rgba(255, 255, 255, 0.06)",
+    gap: 6,
+    minWidth: 100,
+  },
+  countryFlagText: {
+    fontSize: 20,
+  },
+  countryCodeText: {
+    color: "#e9eef7",
+    fontSize: 15,
+    fontWeight: "500",
+  },
+  phoneInfoContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 12,
+    paddingHorizontal: 4,
+  },
+  phoneInfoText: {
+    fontSize: 13,
+    fontWeight: "500",
   },
   forgotPasswordButton: {
     alignSelf: "flex-end",
@@ -568,6 +1030,14 @@ const styles = StyleSheet.create({
   forgotPasswordText: {
     color: "#4ade80",
     fontWeight: "600",
+  },
+  skipButton: {
+    alignSelf: "center",
+    paddingVertical: 10,
+  },
+  skipButtonText: {
+    color: "#94a3b8",
+    fontWeight: "500",
   },
   errorBox: {
     flexDirection: "row",
@@ -643,6 +1113,62 @@ const styles = StyleSheet.create({
   linkAccent: {
     color: "#4ade80",
     fontWeight: "700",
+  },
+  // Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "flex-end",
+  },
+  modalContent: {
+    backgroundColor: "#1e293b",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingBottom: Platform.OS === "ios" ? 34 : 20,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255, 255, 255, 0.1)",
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#ffffff",
+  },
+  countryList: {
+    paddingHorizontal: 16,
+  },
+  countryItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    marginVertical: 4,
+  },
+  selectedCountryItem: {
+    backgroundColor: "rgba(74, 222, 128, 0.1)",
+  },
+  countryFlag: {
+    fontSize: 24,
+    marginRight: 12,
+  },
+  countryInfo: {
+    flex: 1,
+  },
+  countryName: {
+    color: "#ffffff",
+    fontSize: 16,
+    fontWeight: "500",
+  },
+  countryCode: {
+    color: "#94a3b8",
+    fontSize: 14,
   },
 });
 
