@@ -5,10 +5,7 @@ import {
   deleteDoc,
   doc,
   getDoc,
-  getDocs,
-  limit,
   onSnapshot,
-  orderBy,
   query,
   serverTimestamp,
   where,
@@ -30,17 +27,6 @@ import { useAuth } from "../context/AuthContext";
 import { db } from "../lib/firebase";
 import { Gym, PlanChangeRequest } from "../types";
 
-interface PaymentHistory {
-  id: string;
-  userId: string;
-  gymId: string;
-  planDuration: number;
-  amount: number;
-  paymentDate: Date;
-  paymentMethod: string;
-  transactionId?: string;
-}
-
 const Payments: React.FC = () => {
   const { userData, refreshUserData } = useAuth();
   const [currentTimeSlot, setCurrentTimeSlot] =
@@ -54,8 +40,6 @@ const Payments: React.FC = () => {
   const [latestRequest, setLatestRequest] = useState<PlanChangeRequest | null>(
     null,
   );
-  const [paymentHistory, setPaymentHistory] = useState<PaymentHistory[]>([]);
-  const [showHistoryModal, setShowHistoryModal] = useState(false);
 
   const status = userData?.enrollmentStatus ?? "none";
   // ⭐ FIXED: Only get enrolledAt if status is approved
@@ -171,46 +155,6 @@ const Payments: React.FC = () => {
     };
     fetchGym();
   }, [userData?.gymId]);
-
-  // Fetch payment history
-  useEffect(() => {
-    const fetchPaymentHistory = async () => {
-      if (!userData?.uid) return;
-
-      try {
-        const paymentsRef = collection(db, "paymentHistory");
-        const q = query(
-          paymentsRef,
-          where("userId", "==", userData.uid),
-          orderBy("paymentDate", "desc"),
-          limit(10),
-        );
-
-        const querySnapshot = await getDocs(q);
-        const history: PaymentHistory[] = [];
-
-        querySnapshot.forEach((doc) => {
-          const data = doc.data();
-          history.push({
-            id: doc.id,
-            userId: data.userId,
-            gymId: data.gymId,
-            planDuration: data.planDuration,
-            amount: data.amount,
-            paymentDate: data.paymentDate?.toDate() || new Date(),
-            paymentMethod: data.paymentMethod || "offline",
-            transactionId: data.transactionId,
-          });
-        });
-
-        setPaymentHistory(history);
-      } catch (error) {
-        console.error("Error fetching payment history:", error);
-      }
-    };
-
-    fetchPaymentHistory();
-  }, [userData?.uid]);
 
   // Fetch time slot
   useEffect(() => {
@@ -580,16 +524,6 @@ const Payments: React.FC = () => {
                   </Text>
                 </TouchableOpacity>
               )}
-
-              {paymentHistory.length > 0 && (
-                <TouchableOpacity
-                  style={styles.historyBtn}
-                  onPress={() => setShowHistoryModal(true)}
-                >
-                  <Ionicons name="receipt-outline" size={20} color="#4ade80" />
-                  <Text style={styles.historyBtnText}>Payment History</Text>
-                </TouchableOpacity>
-              )}
             </View>
           </>
         )}
@@ -669,78 +603,6 @@ const Payments: React.FC = () => {
               onPress={() => setModalVisible(false)}
             >
               <Text style={styles.modalCloseBtnText}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Payment History Modal */}
-      <Modal
-        visible={showHistoryModal}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowHistoryModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Payment History</Text>
-              <TouchableOpacity onPress={() => setShowHistoryModal(false)}>
-                <Ionicons name="close" size={28} color="#e9eef7" />
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView style={styles.historyScroll}>
-              {paymentHistory.length === 0 ? (
-                <View style={styles.emptyHistory}>
-                  <Ionicons name="receipt-outline" size={48} color="#64748b" />
-                  <Text style={styles.emptyHistoryText}>
-                    No payment history yet
-                  </Text>
-                </View>
-              ) : (
-                paymentHistory.map((payment, index) => (
-                  <View key={payment.id} style={styles.historyItem}>
-                    <View style={styles.historyItemHeader}>
-                      <View style={styles.historyItemIcon}>
-                        <Ionicons
-                          name="checkmark-circle"
-                          size={20}
-                          color="#4ade80"
-                        />
-                      </View>
-                      <View style={styles.historyItemContent}>
-                        <Text style={styles.historyItemTitle}>
-                          {payment.planDuration}{" "}
-                          {payment.planDuration === 1 ? "Month" : "Months"} Plan
-                        </Text>
-                        <Text style={styles.historyItemDate}>
-                          {payment.paymentDate.toLocaleDateString("en-US", {
-                            year: "numeric",
-                            month: "short",
-                            day: "numeric",
-                          })}
-                        </Text>
-                      </View>
-                      <Text style={styles.historyItemAmount}>
-                        ₹{payment.amount}
-                      </Text>
-                    </View>
-                    {payment.transactionId && (
-                      <Text style={styles.historyItemTransaction}>
-                        ID: {payment.transactionId}
-                      </Text>
-                    )}
-                  </View>
-                ))
-              )}
-            </ScrollView>
-
-            <TouchableOpacity
-              style={styles.modalCloseBtn}
-              onPress={() => setShowHistoryModal(false)}
-            >
-              <Text style={styles.modalCloseBtnText}>Close</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -993,23 +855,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#0a0f1a",
   },
-  historyBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    backgroundColor: "rgba(74, 222, 128, 0.1)",
-    borderRadius: 14,
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-    borderWidth: 1,
-    borderColor: "rgba(74, 222, 128, 0.3)",
-  },
-  historyBtnText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#4ade80",
-  },
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.7)",
@@ -1098,62 +943,5 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#64748b",
     fontWeight: "600",
-  },
-  historyScroll: {
-    maxHeight: 400,
-  },
-  emptyHistory: {
-    alignItems: "center",
-    paddingVertical: 40,
-  },
-  emptyHistoryText: {
-    fontSize: 14,
-    color: "#64748b",
-    marginTop: 12,
-  },
-  historyItem: {
-    backgroundColor: "rgba(255,255,255,0.05)",
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-  },
-  historyItemHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  historyItemIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "rgba(74, 222, 128, 0.1)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  historyItemContent: {
-    flex: 1,
-  },
-  historyItemTitle: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: "#e9eef7",
-  },
-  historyItemDate: {
-    fontSize: 12,
-    color: "#64748b",
-    marginTop: 2,
-  },
-  historyItemAmount: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#4ade80",
-  },
-  historyItemTransaction: {
-    fontSize: 11,
-    color: "#64748b",
-    marginTop: 8,
-    fontFamily: "monospace",
   },
 });
