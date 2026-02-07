@@ -1,9 +1,11 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { collection, getDocs, query, where } from "firebase/firestore";
 import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
+  BackHandler,
   Dimensions,
   FlatList,
   RefreshControl,
@@ -37,6 +39,40 @@ const MemberHome: React.FC = () => {
   const [nearMe, setNearMe] = useState(false);
   const [selectedLocation, setSelectedLocation] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
+
+  // 🔴 FIXED BACK BUTTON HANDLER - Using subscription pattern
+  useFocusEffect(
+    React.useCallback(() => {
+      const onBackPress = () => {
+        Alert.alert("Exit App", "Are you sure you want to exit?", [
+          {
+            text: "Cancel",
+            style: "cancel",
+            onPress: () => {}, // Do nothing on cancel
+          },
+          {
+            text: "Exit",
+            style: "destructive",
+            onPress: () => {
+              if (BackHandler.exitApp) {
+                BackHandler.exitApp();
+              }
+            },
+          },
+        ]);
+        return true; // This prevents default back action
+      };
+
+      // ✅ CORRECT: Use subscription pattern
+      const subscription = BackHandler.addEventListener(
+        "hardwareBackPress",
+        onBackPress,
+      );
+
+      // ✅ CORRECT: Cleanup using subscription.remove()
+      return () => subscription.remove();
+    }, []),
+  );
 
   useEffect(() => {
     fetchGyms();
@@ -188,23 +224,7 @@ const MemberHome: React.FC = () => {
           </Text>
         </View>
 
-        {/* BIG REFRESH BUTTON */}
-        <TouchableOpacity
-          style={styles.bigRefreshButton}
-          onPress={handleManualRefresh}
-          disabled={refreshing}
-          activeOpacity={0.7}
-        >
-          <Ionicons
-            name="refresh"
-            size={24}
-            color="#0a0f1a"
-            style={refreshing && styles.spinning}
-          />
-          <Text style={styles.refreshButtonText}>
-            {refreshing ? "Refreshing..." : "Refresh"}
-          </Text>
-        </TouchableOpacity>
+        {/* 🟢 REMOVED: BIG REFRESH BUTTON (kept only pull-to-refresh) */}
       </View>
 
       <Text style={styles.sectionTitle}>Available Gyms</Text>
@@ -380,10 +400,6 @@ const styles = StyleSheet.create({
   header: {
     paddingHorizontal: width * 0.05,
     paddingTop: height * 0.06,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    gap: 12,
   },
   greeting: { fontSize: 16, color: "#94a3b8" },
   userName: {
@@ -393,29 +409,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
 
-  // BIG GREEN REFRESH BUTTON
-  bigRefreshButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    backgroundColor: "#4ade80",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 14,
-    shadowColor: "#4ade80",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 6,
-  },
-  refreshButtonText: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#0a0f1a",
-  },
-  spinning: {
-    // You can add animation here if needed
-  },
+  // 🟢 REMOVED: BIG REFRESH BUTTON STYLES
 
   sectionTitle: {
     fontSize: 20,

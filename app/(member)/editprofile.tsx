@@ -1,8 +1,9 @@
-import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
+import { updateProfile } from "firebase/auth";
+import { doc, updateDoc } from "firebase/firestore";
+import React, { useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   Dimensions,
   KeyboardAvoidingView,
@@ -14,93 +15,105 @@ import {
   TextInput,
   TouchableOpacity,
   View,
-} from 'react-native';
-import { updateProfile, updateEmail } from 'firebase/auth';
-import { doc, updateDoc } from 'firebase/firestore';
-import { useAuth } from '../context/AuthContext';
-import { auth, db } from '../lib/firebase';
+} from "react-native";
+import { useAuth } from "../context/AuthContext";
+import { db } from "../lib/firebase";
 
-const { width, height } = Dimensions.get('window');
+const { width, height } = Dimensions.get("window");
 
 const EditProfile: React.FC = () => {
   const { user, userData, refreshUserData } = useAuth();
   const router = useRouter();
 
-  const [displayName, setDisplayName] = useState(userData?.displayName || '');
-  const [email, setEmail] = useState(userData?.email || '');
+  const [displayName, setDisplayName] = useState(userData?.displayName || "");
   const [loading, setLoading] = useState(false);
 
-  const handleSave = (): void => {
-    if (!displayName.trim()) {
-      Alert.alert('Error', 'Display name cannot be empty');
-      return;
-    }
+  // Check if there are unsaved changes
+  const hasUnsavedChanges = () => {
+    return displayName !== userData?.displayName;
+  };
 
-    if (!email.trim()) {
-      Alert.alert('Error', 'Email cannot be empty');
+  const handleBackPress = () => {
+    if (hasUnsavedChanges()) {
+      Alert.alert(
+        "Discard Changes?",
+        "You have unsaved changes. Are you sure you want to leave?",
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Discard",
+            style: "destructive",
+            onPress: () => {
+              router.push("/(member)/profile");
+            },
+          },
+        ],
+      );
+    } else {
+      router.push("/(member)/profile");
+    }
+  };
+
+  const handleSave = async (): Promise<void> => {
+    if (!displayName.trim()) {
+      Alert.alert("Error", "Display name cannot be empty");
       return;
     }
 
     if (!user) {
-      Alert.alert('Error', 'No user logged in');
+      Alert.alert("Error", "No user logged in");
       return;
     }
 
-    // Show confirmation dialog before saving
-    Alert.alert(
-      'Confirm Changes',
-      'Are you sure you want to save these changes to your profile?',
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-        {
-          text: 'Save',
-          onPress: async () => {
-            setLoading(true);
-            try {
-              // Update Firebase Auth profile
-              await updateProfile(user, {
-                displayName: displayName,
-              });
+    setLoading(true);
+    try {
+      // Update Firebase Auth profile
+      await updateProfile(user, {
+        displayName: displayName,
+      });
 
-              // Update email if it changed
-              if (email !== user.email) {
-                await updateEmail(user, email);
-              }
+      // Update Firestore document
+      const userDocRef = doc(db, "users", user.uid);
+      await updateDoc(userDocRef, {
+        displayName: displayName,
+        updatedAt: new Date(),
+      });
 
-              // Update Firestore document
-              const userDocRef = doc(db, 'users', user.uid);
-              await updateDoc(userDocRef, {
-                displayName: displayName,
-                email: email,
-              });
+      // Refresh user data
+      await refreshUserData();
 
-              // Refresh user data
-              await refreshUserData();
-
-              Alert.alert('Success', 'Profile updated successfully', [
-                { text: 'OK', onPress: () => router.back() }
-              ]);
-            } catch (error: any) {
-              console.error('Update profile error:', error);
-              Alert.alert('Error', error.message || 'Failed to update profile. Please try again.');
-            } finally {
-              setLoading(false);
-            }
+      // Show success modal
+      Alert.alert(
+        "Profile Updated",
+        "Your display name has been updated successfully.",
+        [
+          {
+            text: "OK",
+            onPress: () => router.push("/(member)/profile"),
           },
-        },
-      ]
-    );
+        ],
+      );
+    } catch (error: any) {
+      console.error("Update profile error:", error);
+      Alert.alert(
+        "Error",
+        error.message || "Failed to update profile. Please try again.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCancel = () => {
+    handleBackPress();
   };
 
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0a0f1a" />
-      
+
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={styles.keyboardView}
       >
         <ScrollView
@@ -111,98 +124,153 @@ const EditProfile: React.FC = () => {
           <View style={styles.header}>
             <TouchableOpacity
               style={styles.backButton}
-              onPress={() => router.back()}
+              onPress={handleBackPress}
             >
               <Ionicons name="arrow-back" size={24} color="#e9eef7" />
             </TouchableOpacity>
             <Text style={styles.headerTitle}>Edit Profile</Text>
-            <View style={styles.placeholder} />
+            <View style={styles.headerSpacer} />
           </View>
 
-          {/* Avatar Section */}
-          <View style={styles.avatarSection}>
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>
-                {displayName?.charAt(0)?.toUpperCase() || 'U'}
-              </Text>
+          {/* Current Username Display */}
+          <View style={styles.usernameSection}>
+            <View style={styles.usernameCard}>
+              <Ionicons
+                name="person-circle-outline"
+                size={48}
+                color="#4ade80"
+              />
+              <View style={styles.usernameInfo}>
+                <Text style={styles.currentUsernameLabel}>
+                  Current Username
+                </Text>
+                <Text style={styles.currentUsername}>
+                  {userData?.displayName || "User"}
+                </Text>
+              </View>
             </View>
-            <TouchableOpacity style={styles.changePhotoBtn}>
-              <Ionicons name="camera" size={16} color="#4ade80" />
-              <Text style={styles.changePhotoText}>Change Photo</Text>
-            </TouchableOpacity>
           </View>
 
           {/* Form Section */}
-          <View style={styles.formCard}>
-            {/* Display Name */}
+          <View style={styles.formSection}>
+            {/* Display Name - Only editable field */}
             <View style={styles.inputGroup}>
-              <Text style={styles.label}>Display Name</Text>
-              <View style={styles.inputContainer}>
-                <Ionicons name="person-outline" size={20} color="#64748b" />
-                <TextInput
-                  style={styles.input}
-                  value={displayName}
-                  onChangeText={setDisplayName}
-                  placeholder="Enter your name"
-                  placeholderTextColor="#64748b"
-                  autoCapitalize="words"
-                />
+              <View style={styles.inputLabelRow}>
+                <Ionicons name="create-outline" size={16} color="#94a3b8" />
+                <Text style={styles.label}>Change Display Name</Text>
               </View>
+              <TextInput
+                style={styles.input}
+                value={displayName}
+                onChangeText={setDisplayName}
+                placeholder={userData?.displayName || "Enter new display name"}
+                placeholderTextColor="#64748b"
+                autoCapitalize="words"
+              />
+              <View style={styles.inputBottomLine} />
+              <Text style={styles.helperText}>
+                This name will be visible to gym admins
+              </Text>
             </View>
 
-            {/* Email */}
+            {/* Email (Read-only) */}
             <View style={styles.inputGroup}>
-              <Text style={styles.label}>Email</Text>
-              <View style={styles.inputContainer}>
-                <Ionicons name="mail-outline" size={20} color="#64748b" />
-                <TextInput
-                  style={styles.input}
-                  value={email}
-                  onChangeText={setEmail}
-                  placeholder="Enter your email"
-                  placeholderTextColor="#64748b"
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                />
+              <View style={styles.inputLabelRow}>
+                <Ionicons name="mail-outline" size={16} color="#94a3b8" />
+                <Text style={styles.label}>Email Address</Text>
               </View>
+              <View style={styles.readOnlyContainer}>
+                <Text style={styles.readOnlyText}>
+                  {userData?.email || "No email"}
+                </Text>
+              </View>
+              <Text style={styles.helperText}>
+                Email cannot be changed for security reasons
+              </Text>
             </View>
 
             {/* Role (Read-only) */}
             <View style={styles.inputGroup}>
-              <Text style={styles.label}>Role</Text>
-              <View style={[styles.inputContainer, styles.disabledInput]}>
-                <Ionicons name="shield-checkmark-outline" size={20} color="#64748b" />
-                <TextInput
-                  style={styles.input}
-                  value={userData?.role || 'Member'}
-                  editable={false}
-                  placeholderTextColor="#64748b"
-                />
+              <View style={styles.inputLabelRow}>
+                <Ionicons name="shield-outline" size={16} color="#94a3b8" />
+                <Text style={styles.label}>Account Role</Text>
               </View>
-              <Text style={styles.helperText}>Role cannot be changed</Text>
+              <View style={styles.readOnlyContainer}>
+                <Text style={styles.readOnlyText}>
+                  {userData?.role || "Member"}
+                </Text>
+              </View>
+              <Text style={styles.helperText}>
+                Your role is assigned by the system
+              </Text>
+            </View>
+
+            {/* Member Since */}
+            {userData?.createdAt && (
+              <View style={styles.inputGroup}>
+                <View style={styles.inputLabelRow}>
+                  <Ionicons name="calendar-outline" size={16} color="#94a3b8" />
+                  <Text style={styles.label}>Member Since</Text>
+                </View>
+                <View style={styles.readOnlyContainer}>
+                  <Text style={styles.readOnlyText}>
+                    {userData.createdAt.toLocaleDateString("en-US", {
+                      month: "long",
+                      day: "numeric",
+                      year: "numeric",
+                    })}
+                  </Text>
+                </View>
+              </View>
+            )}
+          </View>
+
+          {/* Info Card */}
+          <View style={styles.infoCard}>
+            <Ionicons
+              name="information-circle-outline"
+              size={20}
+              color="#3b82f6"
+            />
+            <View style={styles.infoContent}>
+              <Text style={styles.infoTitle}>About Display Name</Text>
+              <Text style={styles.infoText}>
+                {`Your display name is how gym admins will identify you. Use your
+                real name or a preferred name that you'd like to be called.`}
+              </Text>
             </View>
           </View>
 
-          {/* Save Button */}
+          {/* Single Save Button */}
           <TouchableOpacity
-            style={[styles.saveButton, loading && styles.saveButtonDisabled]}
+            style={[
+              styles.saveButton,
+              (!hasUnsavedChanges() || loading) && styles.saveButtonDisabled,
+            ]}
             onPress={handleSave}
-            disabled={loading}
+            disabled={!hasUnsavedChanges() || loading}
           >
             {loading ? (
-              <ActivityIndicator color="#0a0f1a" />
+              <Ionicons name="sync" size={22} color="#64748b" />
             ) : (
-              <>
-                <Ionicons name="checkmark-circle" size={22} color="#0a0f1a" />
-                <Text style={styles.saveButtonText}>Save Changes</Text>
-              </>
+              <Ionicons name="checkmark-circle" size={22} color="#0a0f1a" />
             )}
+            <Text
+              style={[
+                styles.saveButtonText,
+                (!hasUnsavedChanges() || loading) &&
+                  styles.saveButtonTextDisabled,
+              ]}
+            >
+              {loading ? "Saving..." : "Save Changes"}
+            </Text>
           </TouchableOpacity>
 
           {/* Cancel Button */}
           <TouchableOpacity
             style={styles.cancelButton}
-            onPress={() => router.back()}
+            onPress={handleCancel}
+            disabled={loading}
           >
             <Text style={styles.cancelButtonText}>Cancel</Text>
           </TouchableOpacity>
@@ -217,152 +285,189 @@ export default EditProfile;
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0a0f1a',
-    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
+    backgroundColor: "#0a0f1a",
+    paddingTop: Platform.OS === "android" ? StatusBar.currentHeight : 0,
   },
   keyboardView: {
     flex: 1,
   },
   scrollContent: {
     paddingHorizontal: width * 0.05,
-    paddingTop: height * 0.02,
-    paddingBottom: height * 0.03,
+    paddingTop: height * 0.04,
+    paddingBottom: height * 0.05,
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: height * 0.03,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: height * 0.04,
   },
   backButton: {
-    width: 40,
-    height: 40,
+    width: 44,
+    height: 44,
     borderRadius: 12,
-    backgroundColor: 'rgba(15, 23, 42, 0.8)',
-    alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: "rgba(15, 23, 42, 0.8)",
+    alignItems: "center",
+    justifyContent: "center",
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
+    borderColor: "rgba(255,255,255,0.06)",
   },
   headerTitle: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#e9eef7',
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#e9eef7",
+    flex: 1,
+    textAlign: "center",
+    marginHorizontal: 12,
   },
-  placeholder: {
-    width: 40,
+  headerSpacer: {
+    width: 44,
   },
-  avatarSection: {
-    alignItems: 'center',
-    marginBottom: height * 0.03,
+  usernameSection: {
+    alignItems: "center",
+    marginBottom: height * 0.04,
   },
-  avatar: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: '#4ade80',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 12,
-    borderWidth: 3,
-    borderColor: 'rgba(74, 222, 128, 0.3)',
-  },
-  avatarText: {
-    fontSize: 40,
-    fontWeight: '700',
-    color: '#0a0f1a',
-  },
-  changePhotoBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+  usernameCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(15, 23, 42, 0.8)",
     borderRadius: 20,
-    backgroundColor: 'rgba(74, 222, 128, 0.15)',
+    padding: 24,
+    width: "100%",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.06)",
+    gap: 16,
   },
-  changePhotoText: {
+  usernameInfo: {
+    flex: 1,
+  },
+  currentUsernameLabel: {
     fontSize: 14,
-    fontWeight: '600',
-    color: '#4ade80',
+    color: "#94a3b8",
+    marginBottom: 6,
   },
-  formCard: {
-    backgroundColor: 'rgba(15, 23, 42, 0.8)',
+  currentUsername: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#e9eef7",
+  },
+  formSection: {
+    backgroundColor: "rgba(15, 23, 42, 0.8)",
     borderRadius: 20,
     padding: 20,
     marginBottom: 20,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
+    borderColor: "rgba(255,255,255,0.06)",
   },
   inputGroup: {
-    marginBottom: 20,
+    marginBottom: 24,
+  },
+  inputLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 10,
   },
   label: {
     fontSize: 14,
-    fontWeight: '600',
-    color: '#94a3b8',
-    marginBottom: 8,
-  },
-  inputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(30, 41, 59, 0.5)',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
-    gap: 12,
-  },
-  disabledInput: {
-    backgroundColor: 'rgba(30, 41, 59, 0.3)',
-    opacity: 0.6,
+    fontWeight: "600",
+    color: "#94a3b8",
   },
   input: {
-    flex: 1,
     fontSize: 16,
-    color: '#e9eef7',
+    color: "#e9eef7",
+    paddingVertical: 12,
+    paddingHorizontal: 0,
+  },
+  inputBottomLine: {
+    height: 1,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    marginTop: 4,
+  },
+  readOnlyContainer: {
+    backgroundColor: "rgba(30, 41, 59, 0.3)",
+    borderRadius: 10,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    marginTop: 4,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.04)",
+  },
+  readOnlyText: {
+    fontSize: 16,
+    color: "#94a3b8",
+    fontWeight: "500",
   },
   helperText: {
     fontSize: 12,
-    color: '#64748b',
-    marginTop: 6,
+    color: "#64748b",
+    marginTop: 8,
     marginLeft: 4,
+    lineHeight: 16,
+  },
+  infoCard: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+    backgroundColor: "rgba(30, 41, 59, 0.5)",
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: "rgba(59, 130, 246, 0.2)",
+  },
+  infoContent: {
+    flex: 1,
+  },
+  infoTitle: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#3b82f6",
+    marginBottom: 4,
+  },
+  infoText: {
+    fontSize: 13,
+    color: "#94a3b8",
+    lineHeight: 18,
   },
   saveButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     gap: 10,
-    backgroundColor: '#4ade80',
+    backgroundColor: "#4ade80",
     borderRadius: 14,
     padding: 16,
     marginBottom: 12,
-    shadowColor: '#4ade80',
-    shadowOffset: { width: 0, height: 6 },
+    shadowColor: "#4ade80",
+    shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.35,
-    shadowRadius: 12,
-    elevation: 8,
+    shadowRadius: 16,
+    elevation: 10,
   },
   saveButtonDisabled: {
-    opacity: 0.6,
+    backgroundColor: "rgba(74, 222, 128, 0.2)",
+    shadowColor: "transparent",
   },
   saveButtonText: {
     fontSize: 16,
-    fontWeight: '700',
-    color: '#0a0f1a',
+    fontWeight: "700",
+    color: "#0a0f1a",
+  },
+  saveButtonTextDisabled: {
+    color: "#64748b",
   },
   cancelButton: {
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     padding: 16,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: 'rgba(148, 163, 184, 0.3)',
+    borderColor: "rgba(148, 163, 184, 0.3)",
   },
   cancelButtonText: {
     fontSize: 16,
-    fontWeight: '600',
-    color: '#94a3b8',
+    fontWeight: "600",
+    color: "#94a3b8",
   },
 });

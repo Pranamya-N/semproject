@@ -67,6 +67,21 @@ const MyGym: React.FC = () => {
   const [initialLoadDone, setInitialLoadDone] = useState<boolean>(false);
   const [checkInStartTime, setCheckInStartTime] = useState<Date | null>(null);
 
+  // 🔔 NOTIFICATION STATE
+  const [showNotifications, setShowNotifications] = useState<boolean>(false);
+  const [notifications, setNotifications] = useState<
+    {
+      id: string;
+      title: string;
+      message: string;
+      date: Date;
+      type: "report" | "enrollment" | "payment" | "general";
+      read: boolean;
+      reportId?: string;
+    }[]
+  >([]);
+  const [unreadCount, setUnreadCount] = useState<number>(0);
+
   useEffect(() => {
     if (userData && !initialLoadDone) {
       checkEnrollmentAndFetchGym();
@@ -85,6 +100,13 @@ const MyGym: React.FC = () => {
       setCurrentTimeSlot("Night");
     }
   }, []);
+
+  // 🔔 FETCH NOTIFICATIONS
+  useEffect(() => {
+    if (userData?.uid) {
+      fetchUserNotifications();
+    }
+  }, [userData?.uid]);
 
   const checkEnrollmentAndFetchGym = async () => {
     if (userData?.enrollmentStatus === "approved" && userData?.gymId) {
@@ -180,6 +202,47 @@ const MyGym: React.FC = () => {
       }
     } catch (error) {
       console.error("Error loading stats:", error);
+    }
+  };
+
+  // 🔔 FETCH USER NOTIFICATIONS
+  const fetchUserNotifications = async () => {
+    try {
+      if (!userData?.uid) return;
+
+      // Fetch resolved reports for this user
+      const reportsRef = collection(db, "gymReports");
+      const reportsQuery = query(
+        reportsRef,
+        where("userId", "==", userData.uid),
+        where("status", "in", ["resolved", "reviewed", "rejected"]),
+      );
+
+      const snapshot = await getDocs(reportsQuery);
+      const reportNotifications = snapshot.docs.map((doc) => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          title: `Report ${data.status === "resolved" ? "Resolved" : data.status === "reviewed" ? "Reviewed" : "Rejected"}`,
+          message:
+            data.adminNotes ||
+            `Your report has been ${data.status}${data.status === "resolved" ? " and the issue has been addressed." : data.status === "reviewed" ? " and is under review." : " by the admin."}`,
+          date: data.reviewedAt?.toDate() || new Date(),
+          type: "report" as const,
+          read: false,
+          reportId: doc.id,
+        };
+      });
+
+      // Sort by date (newest first)
+      const sortedNotifications = reportNotifications.sort(
+        (a, b) => b.date.getTime() - a.date.getTime(),
+      );
+
+      setNotifications(sortedNotifications);
+      setUnreadCount(sortedNotifications.filter((n) => !n.read).length);
+    } catch (error) {
+      console.error("Error fetching notifications:", error);
     }
   };
 
@@ -629,6 +692,53 @@ const MyGym: React.FC = () => {
     }
   };
 
+  // 🔔 NOTIFICATION FUNCTIONS
+  const markAsRead = (notificationId: string) => {
+    setNotifications((prev) =>
+      prev.map((notif) =>
+        notificationId === notif.id ? { ...notif, read: true } : notif,
+      ),
+    );
+    setUnreadCount((prev) => Math.max(0, prev - 1));
+  };
+
+  const markAllAsRead = () => {
+    setNotifications((prev) => prev.map((notif) => ({ ...notif, read: true })));
+    setUnreadCount(0);
+  };
+
+  const clearAllNotifications = () => {
+    Alert.alert(
+      "Clear All",
+      "Are you sure you want to clear all notifications?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Clear All",
+          style: "destructive",
+          onPress: () => {
+            setNotifications([]);
+            setUnreadCount(0);
+          },
+        },
+      ],
+    );
+  };
+
+  const formatNotificationTime = (date: Date) => {
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+
+    if (diffMins < 1) return "Just now";
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  };
+
   const formatTime = (seconds: number) => {
     const hrs = Math.floor(seconds / 3600);
     const mins = Math.floor((seconds % 3600) / 60);
@@ -742,8 +852,8 @@ const MyGym: React.FC = () => {
                   <Text style={styles.pendingStatusText}>Pending Approval</Text>
                 </View>
                 <Text style={styles.statusDescription}>
-                  Your enrollment request is under review by gym admin. You'll
-                  receive notification once approved.
+                  {`Your enrollment request is under review by gym admin. You'll
+                  receive notification once approved.`}
                 </Text>
               </View>
             </View>
@@ -1014,8 +1124,8 @@ const MyGym: React.FC = () => {
           </View>
           <Text style={styles.emptyTitle}>Enrollment Pending</Text>
           <Text style={styles.emptySubtext}>
-            Your enrollment request is being reviewed by the gym admin. You'll
-            be able to check-in once approved.
+            {`Your enrollment request is being reviewed by the gym admin. You'll
+            be able to check-in once approved.`}
           </Text>
 
           <TouchableOpacity
@@ -1150,13 +1260,30 @@ const MyGym: React.FC = () => {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
+        {/* 🔔 NOTIFICATION HEADER */}
         <View style={styles.header}>
-          <View>
+          <TouchableOpacity
+            style={styles.notificationIconContainer}
+            onPress={() => setShowNotifications(!showNotifications)}
+          >
+            <Ionicons name="notifications-outline" size={24} color="#e9eef7" />
+            {unreadCount > 0 && (
+              <View style={styles.notificationBadge}>
+                <Text style={styles.notificationBadgeText}>
+                  {unreadCount > 9 ? "9+" : unreadCount}
+                </Text>
+              </View>
+            )}
+          </TouchableOpacity>
+
+          <View style={styles.headerTextContainer}>
             <Text style={styles.greeting}>{getGreeting()},</Text>
             <Text style={styles.userName}>
               {userData?.displayName || "Member"}
             </Text>
           </View>
+
+          <View style={styles.headerRightSpacer} />
         </View>
 
         <View style={styles.gymCard}>
@@ -1285,6 +1412,124 @@ const MyGym: React.FC = () => {
           </TouchableOpacity>
         </View>
       </ScrollView>
+
+      {/* 🔔 NOTIFICATIONS MODAL */}
+      {showNotifications && (
+        <Modal
+          transparent={true}
+          animationType="fade"
+          visible={showNotifications}
+          onRequestClose={() => setShowNotifications(false)}
+        >
+          <TouchableOpacity
+            style={styles.notificationOverlay}
+            activeOpacity={1}
+            onPress={() => setShowNotifications(false)}
+          >
+            <View style={styles.notificationDropdown}>
+              <View style={styles.notificationHeader}>
+                <Text style={styles.notificationTitle}>Notifications</Text>
+                <View style={styles.notificationHeaderActions}>
+                  {unreadCount > 0 && (
+                    <TouchableOpacity
+                      style={styles.markAllReadButton}
+                      onPress={markAllAsRead}
+                    >
+                      <Text style={styles.markAllReadText}>Mark all read</Text>
+                    </TouchableOpacity>
+                  )}
+                  {notifications.length > 0 && (
+                    <TouchableOpacity
+                      style={styles.clearAllButton}
+                      onPress={clearAllNotifications}
+                    >
+                      <Ionicons
+                        name="trash-outline"
+                        size={18}
+                        color="#f87171"
+                      />
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </View>
+
+              <ScrollView style={styles.notificationList}>
+                {notifications.length === 0 ? (
+                  <View style={styles.noNotificationsContainer}>
+                    <Ionicons
+                      name="notifications-off-outline"
+                      size={48}
+                      color="#64748b"
+                    />
+                    <Text style={styles.noNotificationsText}>
+                      No notifications
+                    </Text>
+                    <Text style={styles.noNotificationsSubtext}>
+                      {`When your reports are resolved or reviewed, you'll see updates here.`}
+                    </Text>
+                  </View>
+                ) : (
+                  notifications.map((notif) => (
+                    <TouchableOpacity
+                      key={notif.id}
+                      style={[
+                        styles.notificationItem,
+                        !notif.read && styles.notificationItemUnread,
+                      ]}
+                      onPress={() => markAsRead(notif.id)}
+                    >
+                      <View style={styles.notificationIcon}>
+                        <Ionicons
+                          name={
+                            notif.type === "report"
+                              ? "flag-outline"
+                              : notif.type === "enrollment"
+                                ? "person-add-outline"
+                                : notif.type === "payment"
+                                  ? "card-outline"
+                                  : "information-circle"
+                          }
+                          size={20}
+                          color={
+                            notif.type === "report"
+                              ? "#fbbf24"
+                              : notif.type === "enrollment"
+                                ? "#4ade80"
+                                : notif.type === "payment"
+                                  ? "#3b82f6"
+                                  : "#8b5cf6"
+                          }
+                        />
+                      </View>
+                      <View style={styles.notificationContent}>
+                        <View style={styles.notificationHeaderRow}>
+                          <Text style={styles.notificationItemTitle}>
+                            {notif.title}
+                          </Text>
+                          {!notif.read && <View style={styles.unreadDot} />}
+                        </View>
+                        <Text style={styles.notificationItemMessage}>
+                          {notif.message}
+                        </Text>
+                        <Text style={styles.notificationItemTime}>
+                          {formatNotificationTime(notif.date)}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  ))
+                )}
+              </ScrollView>
+
+              <TouchableOpacity
+                style={styles.closeNotificationsButton}
+                onPress={() => setShowNotifications(false)}
+              >
+                <Text style={styles.closeNotificationsText}>Close</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </Modal>
+      )}
 
       <Modal visible={showReportModal} transparent animationType="slide">
         <View style={styles.modalOverlay}>
@@ -1535,11 +1780,49 @@ const styles = StyleSheet.create({
     bottom: height * 0.3,
     left: -width * 0.15,
   },
+
+  // 🔔 NOTIFICATION STYLES
   header: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
+    justifyContent: "space-between",
     marginBottom: height * 0.025,
+  },
+  notificationIconContainer: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "rgba(30, 41, 59, 0.8)",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.06)",
+  },
+  notificationBadge: {
+    position: "absolute",
+    top: -2,
+    right: -2,
+    backgroundColor: "#ef4444",
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 4,
+    borderWidth: 2,
+    borderColor: "#0a0f1a",
+  },
+  notificationBadgeText: {
+    color: "#fff",
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  headerTextContainer: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  headerRightSpacer: {
+    width: 44,
   },
   greeting: { fontSize: 16, color: "#94a3b8" },
   userName: {
@@ -1547,6 +1830,148 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#e9eef7",
   },
+  notificationOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "flex-start",
+    paddingTop: Platform.OS === "ios" ? 60 : 40,
+  },
+  notificationDropdown: {
+    marginHorizontal: 16,
+    backgroundColor: "#0f172a",
+    borderRadius: 20,
+    maxHeight: height * 0.7,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+    overflow: "hidden",
+  },
+  notificationHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.06)",
+  },
+  notificationTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#e9eef7",
+  },
+  notificationHeaderActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  markAllReadButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: "rgba(74, 222, 128, 0.1)",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "rgba(74, 222, 128, 0.2)",
+  },
+  markAllReadText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#4ade80",
+  },
+  clearAllButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(248, 113, 113, 0.1)",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(248, 113, 113, 0.2)",
+  },
+  notificationList: {
+    maxHeight: height * 0.5,
+  },
+  noNotificationsContainer: {
+    alignItems: "center",
+    paddingVertical: 40,
+    paddingHorizontal: 20,
+  },
+  noNotificationsText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#e9eef7",
+    marginTop: 12,
+  },
+  noNotificationsSubtext: {
+    fontSize: 14,
+    color: "#64748b",
+    textAlign: "center",
+    marginTop: 8,
+    lineHeight: 20,
+  },
+  notificationItem: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.04)",
+  },
+  notificationItemUnread: {
+    backgroundColor: "rgba(59, 130, 246, 0.05)",
+  },
+  notificationIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(255,255,255,0.05)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
+  notificationContent: {
+    flex: 1,
+  },
+  notificationHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 4,
+  },
+  notificationItemTitle: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#e9eef7",
+    flex: 1,
+  },
+  unreadDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#3b82f6",
+    marginLeft: 8,
+  },
+  notificationItemMessage: {
+    fontSize: 14,
+    color: "#94a3b8",
+    lineHeight: 20,
+    marginBottom: 4,
+  },
+  notificationItemTime: {
+    fontSize: 12,
+    color: "#64748b",
+  },
+  closeNotificationsButton: {
+    paddingVertical: 16,
+    alignItems: "center",
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.06)",
+  },
+  closeNotificationsText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#64748b",
+  },
+
   gymCard: {
     flexDirection: "row",
     alignItems: "center",
