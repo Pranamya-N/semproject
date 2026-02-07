@@ -1,6 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
-
 import {
   collection,
   doc,
@@ -227,7 +226,9 @@ const ActivityLog: React.FC = () => {
 
           if (firestoreError.code === "failed-precondition") {
             // Missing index error
-            setError("Database index is being created. Please try again in a moment.");
+            setError(
+              "Database index is being created. Please try again in a moment.",
+            );
             setLoading(false);
             return;
           }
@@ -263,10 +264,7 @@ const ActivityLog: React.FC = () => {
   useEffect(() => {
     // Additional load when month changes
     loadCheckInHistory();
-  }, [
-    currentMonth,
-    loadCheckInHistory,
-  ]);
+  }, [currentMonth, loadCheckInHistory]);
 
   const getDaysInMonth = (date: Date) => {
     const year = date.getFullYear();
@@ -304,13 +302,13 @@ const ActivityLog: React.FC = () => {
       today.getMonth(),
       today.getDate(),
     );
-    
+
     const checkDate = new Date(
       currentMonth.getFullYear(),
       currentMonth.getMonth(),
       day,
     );
-    
+
     return checkDate > todayStart;
   };
 
@@ -328,8 +326,10 @@ const ActivityLog: React.FC = () => {
       }
       return match;
     });
-    
-    console.log(`📅 Checking day ${day}: dateKey=${dateKey}, hasCheckIn=${hasCheckIn}`);
+
+    console.log(
+      `📅 Checking day ${day}: dateKey=${dateKey}, hasCheckIn=${hasCheckIn}`,
+    );
     return hasCheckIn;
   };
 
@@ -377,12 +377,19 @@ const ActivityLog: React.FC = () => {
     });
   };
 
+  // Handle back button press - navigate to MyGym page
+  const handleBackPress = () => {
+    router.push("/(member)/mygym");
+  };
+
   const renderCalendar = () => {
     const daysInMonth = getDaysInMonth(currentMonth);
     const firstDay = getFirstDayOfMonth(currentMonth);
     const days = [];
 
-    console.log(`🗓️ Rendering calendar for ${currentMonth.getMonth() + 1}/${currentMonth.getFullYear()}`);
+    console.log(
+      `🗓️ Rendering calendar for ${currentMonth.getMonth() + 1}/${currentMonth.getFullYear()}`,
+    );
     console.log(`   Days in month: ${daysInMonth}, First day: ${firstDay}`);
 
     for (let i = 0; i < firstDay; i++) {
@@ -470,10 +477,7 @@ const ActivityLog: React.FC = () => {
       <View style={styles.container}>
         <StatusBar barStyle="light-content" backgroundColor="#0a0f1a" />
         <View style={styles.header}>
-          <TouchableOpacity
-            onPress={() => router.back()}
-            style={styles.backButton}
-          >
+          <TouchableOpacity onPress={handleBackPress} style={styles.backButton}>
             <Ionicons name="arrow-back" size={24} color="#e9eef7" />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Activity Log</Text>
@@ -502,10 +506,7 @@ const ActivityLog: React.FC = () => {
       <View style={styles.container}>
         <StatusBar barStyle="light-content" backgroundColor="#0a0f1a" />
         <View style={styles.header}>
-          <TouchableOpacity
-            onPress={() => router.back()}
-            style={styles.backButton}
-          >
+          <TouchableOpacity onPress={handleBackPress} style={styles.backButton}>
             <Ionicons name="arrow-back" size={24} color="#e9eef7" />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Activity Log</Text>
@@ -551,10 +552,7 @@ const ActivityLog: React.FC = () => {
       <StatusBar barStyle="light-content" backgroundColor="#0a0f1a" />
 
       <View style={styles.header}>
-        <TouchableOpacity
-          onPress={() => router.back()}
-          style={styles.backButton}
-        >
+        <TouchableOpacity onPress={handleBackPress} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color="#e9eef7" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Activity Log</Text>
@@ -689,9 +687,7 @@ const ActivityLog: React.FC = () => {
                 onPress={() => router.push("/(member)/mygym")}
               >
                 <Ionicons name="fitness" size={18} color="#0a0f1a" />
-                <Text style={styles.checkInPromptButtonText}>
-                  Go to My Gym
-                </Text>
+                <Text style={styles.checkInPromptButtonText}>Go to My Gym</Text>
               </TouchableOpacity>
             </View>
           ) : (

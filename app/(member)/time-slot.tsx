@@ -298,6 +298,11 @@ const TimeSlotPage: React.FC = () => {
     await refreshAllData();
   };
 
+  // Handle back button press - navigate to MyGym page
+  const handleBackPress = () => {
+    router.push("/(member)/mygym");
+  };
+
   // Render different states based on user status
   const renderContent = () => {
     // Loading state
@@ -324,9 +329,9 @@ const TimeSlotPage: React.FC = () => {
             onPress={() => {
               // Try to navigate to home or explore
               try {
-                router.push("/");
+                router.push("/(member)/home");
               } catch {
-                router.push("/(tabs)");
+                router.push("/");
               }
             }}
           >
@@ -350,7 +355,7 @@ const TimeSlotPage: React.FC = () => {
           <Ionicons name="time-outline" size={64} color="#fbbf24" />
           <Text style={styles.pendingTitle}>Awaiting Approval</Text>
           <Text style={styles.pendingText}>
-            {statusText}. You'll be able to set a time slot once approved.
+            {statusText}. {`You'll be able to set a time slot once approved.`}
           </Text>
           <Text style={styles.pendingSubtext}>
             Current status: {userData.enrollmentStatus}
@@ -426,8 +431,8 @@ const TimeSlotPage: React.FC = () => {
               <Ionicons name="time-outline" size={64} color="#64748b" />
               <Text style={styles.noSlotTitle}>No Time Slot Selected</Text>
               <Text style={styles.noSlotText}>
-                You haven't selected a preferred time slot yet. Choose one to
-                optimize your gym experience.
+                {`You haven't selected a preferred time slot yet. Choose one to
+                optimize your gym experience.`}
               </Text>
             </View>
           )}
@@ -538,10 +543,7 @@ const TimeSlotPage: React.FC = () => {
         }
       >
         <View style={styles.header}>
-          <TouchableOpacity
-            onPress={() => router.back()}
-            style={styles.backButton}
-          >
+          <TouchableOpacity onPress={handleBackPress} style={styles.backButton}>
             <Ionicons name="arrow-back" size={24} color="#e9eef7" />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Time Slot</Text>

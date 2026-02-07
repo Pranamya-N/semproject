@@ -879,7 +879,7 @@ Terms & Conditions:
             <View style={[styles.statusBanner, styles.statusBannerWarning]}>
               <Ionicons name="information-circle" size={20} color="#f97316" />
               <Text style={[styles.statusBannerText, { color: "#f97316" }]}>
-                You're enrolled at another gym
+                {`You're enrolled at another gym`}
               </Text>
             </View>
           )}
