@@ -10,6 +10,9 @@ export type IssueType =
 export type ReportStatus = "pending" | "reviewed" | "resolved" | "rejected";
 export type PlanChangeStatus = "pending" | "approved" | "rejected";
 
+// ADDED: Status for gym reviews
+export type ReviewStatus = "pending" | "published" | "hidden";
+
 export interface Gym {
   id: string;
   name: string;
@@ -40,6 +43,10 @@ export interface UserData {
   uid: string;
   email: string | null;
   displayName: string | null;
+  // ADDED: User phone number (string format)
+  phone: string | null;
+  // ADDED: Track if user has provided phone number
+  hasProvidedPhone: boolean;
   role: UserRole;
   gymId: string | null;
   enrollmentStatus: EnrollmentStatus;
@@ -52,6 +59,8 @@ export interface UserData {
   streak?: number;
   totalDuration?: number;
   statsUpdatedAt?: Date;
+  // ADDED: Track if user has reviewed current gym
+  hasReviewedCurrentGym?: boolean;
 }
 
 export interface Enrollment {
@@ -121,4 +130,20 @@ export interface GymReport {
   reviewedAt?: Date | null;
   reviewedBy?: string | null;
   adminNotes?: string;
+  // ADDED: Track if user has read notification
+  userHasRead?: boolean;
+}
+
+// ADDED: Gym Review interface
+export interface GymReview {
+  id: string;
+  gymId: string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  // ADDED: User phone number
+  userPhone: string;
+  rating: number; // 1-5 stars
+  comment: string;
+  createdAt: Date;
 }

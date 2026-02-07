@@ -65,6 +65,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
           uid: firebaseUser.uid,
           email: firebaseUser.email,
           displayName: firebaseUser.displayName || data.displayName,
+          // ADDED: Phone field
+          phone: data.phone || null,
+          // ADDED: hasProvidedPhone field
+          hasProvidedPhone: data.hasProvidedPhone || false,
           role: data.role || "member",
           gymId: data.gymId || null,
           enrollmentStatus: data.enrollmentStatus || "none",
@@ -73,13 +77,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
           enrolledAt: data.enrolledAt?.toDate() || null,
           createdAt: data.createdAt?.toDate() || new Date(),
           planDuration,
-          timeSlot: data.timeSlot || null, // ADDED: Time slot field
+          timeSlot: data.timeSlot || null,
+          // ADDED: hasReviewedCurrentGym field
+          hasReviewedCurrentGym: data.hasReviewedCurrentGym || false,
         });
       } else {
         // Create new user document
         const newUserData = {
           displayName: firebaseUser.displayName,
           email: firebaseUser.email,
+          // ADDED: Phone field (default null)
+          phone: null,
+          // ADDED: hasProvidedPhone field (default false)
+          hasProvidedPhone: false,
           role: "member" as UserRole,
           gymId: null,
           enrollmentStatus: "none" as EnrollmentStatus,
@@ -88,7 +98,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
           enrolledAt: null,
           createdAt: serverTimestamp(),
           planDuration: 1, // default
-          timeSlot: null, // ADDED: Default no time slot
+          timeSlot: null,
+          // ADDED: hasReviewedCurrentGym field (default false)
+          hasReviewedCurrentGym: false,
         };
 
         await setDoc(userDocRef, newUserData);
@@ -97,6 +109,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
           uid: firebaseUser.uid,
           email: firebaseUser.email,
           displayName: firebaseUser.displayName,
+          // ADDED: Phone field
+          phone: null,
+          // ADDED: hasProvidedPhone field
+          hasProvidedPhone: false,
           role: "member",
           gymId: null,
           enrollmentStatus: "none",
@@ -105,7 +121,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
           enrolledAt: null,
           createdAt: new Date(),
           planDuration: 1,
-          timeSlot: null, // ADDED: Default no time slot
+          timeSlot: null,
+          // ADDED: hasReviewedCurrentGym field
+          hasReviewedCurrentGym: false,
         });
       }
     } catch (error) {

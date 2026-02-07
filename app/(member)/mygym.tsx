@@ -82,6 +82,15 @@ const MyGym: React.FC = () => {
   >([]);
   const [unreadCount, setUnreadCount] = useState<number>(0);
 
+  // ⭐ ADDED: RATING STATE
+  const [showRatingModal, setShowRatingModal] = useState<boolean>(false);
+  const [showLeaveRatingModal, setShowLeaveRatingModal] =
+    useState<boolean>(false);
+  const [rating, setRating] = useState<number>(0);
+  const [reviewComment, setReviewComment] = useState<string>("");
+  const [submittingReview, setSubmittingReview] = useState<boolean>(false);
+  const [hasGivenReview, setHasGivenReview] = useState<boolean>(false);
+
   useEffect(() => {
     if (userData && !initialLoadDone) {
       checkEnrollmentAndFetchGym();
@@ -105,6 +114,7 @@ const MyGym: React.FC = () => {
   useEffect(() => {
     if (userData?.uid) {
       fetchUserNotifications();
+      checkIfUserHasReviewed();
     }
   }, [userData?.uid]);
 
@@ -205,7 +215,26 @@ const MyGym: React.FC = () => {
     }
   };
 
-  // 🔔 FETCH USER NOTIFICATIONS
+  // ⭐ ADDED: Check if user has reviewed current gym
+  const checkIfUserHasReviewed = async () => {
+    try {
+      if (!userData?.uid || !userData?.gymId) return;
+
+      const reviewsRef = collection(db, "gymReviews");
+      const reviewQuery = query(
+        reviewsRef,
+        where("userId", "==", userData.uid),
+        where("gymId", "==", userData.gymId),
+      );
+
+      const querySnapshot = await getDocs(reviewQuery);
+      setHasGivenReview(!querySnapshot.empty);
+    } catch (error) {
+      console.error("Error checking reviews:", error);
+    }
+  };
+
+  // 🔔 FETCH USER NOTIFICATIONS (UPDATED WITH FIRESTORE READ STATUS)
   const fetchUserNotifications = async () => {
     try {
       if (!userData?.uid) return;
@@ -229,7 +258,8 @@ const MyGym: React.FC = () => {
             `Your report has been ${data.status}${data.status === "resolved" ? " and the issue has been addressed." : data.status === "reviewed" ? " and is under review." : " by the admin."}`,
           date: data.reviewedAt?.toDate() || new Date(),
           type: "report" as const,
-          read: false,
+          // ⭐ FIXED: Use Firestore read status instead of always false
+          read: data.userHasRead || false,
           reportId: doc.id,
         };
       });
@@ -593,7 +623,57 @@ const MyGym: React.FC = () => {
     }, 5000);
   };
 
+  // ⭐ ADDED: Submit gym review
+  const handleSubmitReview = async () => {
+    if (rating === 0) {
+      Alert.alert("Error", "Please select a rating");
+      return;
+    }
+
+    setSubmittingReview(true);
+    try {
+      await addDoc(collection(db, "gymReviews"), {
+        gymId: gym?.id,
+        userId: userData?.uid,
+        userName: userData?.displayName || "User",
+        userEmail: userData?.email || "",
+        userPhone: userData?.phone || "",
+        rating: rating,
+        comment: reviewComment.trim(),
+        createdAt: serverTimestamp(),
+      });
+
+      // Update user's hasReviewedCurrentGym status
+      if (userData?.uid) {
+        await updateDoc(doc(db, "users", userData.uid), {
+          hasReviewedCurrentGym: true,
+        });
+        await refreshUserData();
+      }
+
+      setHasGivenReview(true);
+      Alert.alert("Success", "Thank you for your review!");
+      setShowRatingModal(false);
+      setShowLeaveRatingModal(false);
+      setRating(0);
+      setReviewComment("");
+    } catch (error) {
+      console.error("Error submitting review:", error);
+      Alert.alert("Error", "Failed to submit review. Please try again.");
+    } finally {
+      setSubmittingReview(false);
+    }
+  };
+
+  // ⭐ MODIFIED: Handle leave gym with rating prompt
   const handleLeaveGym = () => {
+    // If user hasn't reviewed this gym, show rating modal first
+    if (!hasGivenReview) {
+      setShowLeaveRatingModal(true);
+      return;
+    }
+
+    // If already reviewed, proceed with normal leave
     Alert.alert(
       "Leave Gym",
       `Are you sure you want to leave ${gym?.name}?\n\n⚠️ WARNING: Your membership payment is non-refundable.`,
@@ -602,35 +682,56 @@ const MyGym: React.FC = () => {
         {
           text: "Leave Gym",
           style: "destructive",
-          onPress: async () => {
-            try {
-              if (!userData?.uid) return;
+          onPress: () => performLeaveGym(false),
+        },
+      ],
+    );
+  };
 
-              if (isCheckedIn) {
-                await performCheckOut();
-              }
+  // ⭐ ADDED: Actual leave gym function
+  const performLeaveGym = async (skipRating: boolean = false) => {
+    try {
+      if (!userData?.uid) return;
 
-              await updateDoc(doc(db, "users", userData.uid), {
-                gymId: null,
-                enrollmentStatus: "none",
-                paymentMethod: null,
-                transactionId: null,
-                enrolledAt: null,
-                streak: 0,
-                totalDuration: 0,
-              });
+      if (isCheckedIn) {
+        await performCheckOut();
+      }
 
-              await refreshUserData();
-              router.replace("/(member)/home");
-              Alert.alert(
-                "Success",
-                "You have left the gym. Browse the home page to find a new gym!",
-              );
-            } catch (error) {
-              console.error("Error leaving gym:", error);
-              Alert.alert("Error", "Failed to leave gym");
-            }
-          },
+      await updateDoc(doc(db, "users", userData.uid), {
+        gymId: null,
+        enrollmentStatus: "none",
+        paymentMethod: null,
+        transactionId: null,
+        enrolledAt: null,
+        streak: 0,
+        totalDuration: 0,
+        hasReviewedCurrentGym: false, // Reset for next gym
+      });
+
+      await refreshUserData();
+      router.replace("/(member)/home");
+      Alert.alert(
+        "Success",
+        "You have left the gym. Browse the home page to find a new gym!",
+      );
+    } catch (error) {
+      console.error("Error leaving gym:", error);
+      Alert.alert("Error", "Failed to leave gym");
+    }
+  };
+
+  // ⭐ ADDED: Skip rating and leave gym
+  const handleSkipRatingAndLeave = () => {
+    setShowLeaveRatingModal(false);
+    Alert.alert(
+      "Leave Gym",
+      `Are you sure you want to leave ${gym?.name}?\n\n⚠️ WARNING: Your membership payment is non-refundable.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Leave Gym",
+          style: "destructive",
+          onPress: () => performLeaveGym(true),
         },
       ],
     );
@@ -675,6 +776,7 @@ const MyGym: React.FC = () => {
         description: reportDescription,
         status: "pending" as ReportStatus,
         createdAt: serverTimestamp(),
+        userHasRead: false, // ⭐ ADDED: Initialize read status
       });
 
       Alert.alert(
@@ -692,17 +794,52 @@ const MyGym: React.FC = () => {
     }
   };
 
-  // 🔔 NOTIFICATION FUNCTIONS
-  const markAsRead = (notificationId: string) => {
-    setNotifications((prev) =>
-      prev.map((notif) =>
-        notificationId === notif.id ? { ...notif, read: true } : notif,
-      ),
-    );
-    setUnreadCount((prev) => Math.max(0, prev - 1));
+  // 🔔 NOTIFICATION FUNCTIONS (UPDATED WITH FIRESTORE)
+  const markAsRead = async (notificationId: string) => {
+    try {
+      // Update in Firestore
+      await updateDoc(doc(db, "gymReports", notificationId), {
+        userHasRead: true,
+      });
+
+      // Update local state
+      setNotifications((prev) =>
+        prev.map((notif) =>
+          notificationId === notif.id ? { ...notif, read: true } : notif,
+        ),
+      );
+      setUnreadCount((prev) => Math.max(0, prev - 1));
+    } catch (error) {
+      console.error("Error marking as read:", error);
+      // Fallback to local update
+      setNotifications((prev) =>
+        prev.map((notif) =>
+          notificationId === notif.id ? { ...notif, read: true } : notif,
+        ),
+      );
+      setUnreadCount((prev) => Math.max(0, prev - 1));
+    }
   };
 
-  const markAllAsRead = () => {
+  const markAllAsRead = async () => {
+    try {
+      // Update all notifications in Firestore
+      const updatePromises = notifications
+        .filter((notif) => !notif.read)
+        .map(async (notif) => {
+          if (notif.reportId) {
+            await updateDoc(doc(db, "gymReports", notif.reportId), {
+              userHasRead: true,
+            });
+          }
+        });
+
+      await Promise.all(updatePromises);
+    } catch (error) {
+      console.error("Error marking all as read:", error);
+    }
+
+    // Update local state
     setNotifications((prev) => prev.map((notif) => ({ ...notif, read: true })));
     setUnreadCount(0);
   };
@@ -819,6 +956,25 @@ const MyGym: React.FC = () => {
 
   const copyToClipboard = (text: string) => {
     Alert.alert("Copied!", "Details copied to clipboard");
+  };
+
+  // ⭐ ADDED: Render star rating
+  const renderStars = (count: number, size: number = 32) => {
+    return Array(5)
+      .fill(0)
+      .map((_, index) => (
+        <TouchableOpacity
+          key={index}
+          onPress={() => setRating(index + 1)}
+          style={styles.starButton}
+        >
+          <Ionicons
+            name={index < count ? "star" : "star-outline"}
+            size={size}
+            color="#fbbf24"
+          />
+        </TouchableOpacity>
+      ));
   };
 
   const renderPlanDetailsModal = () => (
@@ -1100,6 +1256,101 @@ const MyGym: React.FC = () => {
     </Modal>
   );
 
+  // ⭐ ADDED: Rating modal component
+  const renderRatingModal = (isLeaving: boolean = false) => (
+    <Modal
+      visible={isLeaving ? showLeaveRatingModal : showRatingModal}
+      transparent
+      animationType="slide"
+    >
+      <View style={styles.ratingModalOverlay}>
+        <View style={styles.ratingModalContent}>
+          <View style={styles.ratingModalHeader}>
+            <Text style={styles.ratingModalTitle}>
+              {isLeaving ? "Rate Your Experience" : "Rate This Gym"}
+            </Text>
+            {!isLeaving && (
+              <TouchableOpacity onPress={() => setShowRatingModal(false)}>
+                <Ionicons name="close" size={28} color="#e9eef7" />
+              </TouchableOpacity>
+            )}
+          </View>
+
+          <ScrollView style={styles.ratingModalScroll}>
+            <View style={styles.ratingSection}>
+              <Text style={styles.ratingSectionTitle}>
+                How would you rate {gym?.name}?
+              </Text>
+              <View style={styles.starsContainer}>{renderStars(rating)}</View>
+              <Text style={styles.ratingHint}>
+                {rating === 0
+                  ? "Tap stars to rate"
+                  : `${rating} out of 5 stars`}
+              </Text>
+            </View>
+
+            <View style={styles.ratingSection}>
+              <Text style={styles.ratingSectionTitle}>Optional Comment</Text>
+              <TextInput
+                style={styles.reviewInput}
+                placeholder="Share your experience (optional)..."
+                placeholderTextColor="#64748b"
+                value={reviewComment}
+                onChangeText={setReviewComment}
+                multiline
+                numberOfLines={4}
+                textAlignVertical="top"
+              />
+              <Text style={styles.reviewHint}>
+                Your review will be visible to others
+              </Text>
+            </View>
+
+            {isLeaving && (
+              <View style={styles.leavingNote}>
+                <Ionicons
+                  name="information-circle-outline"
+                  size={20}
+                  color="#fbbf24"
+                />
+                <Text style={styles.leavingNoteText}>
+                  {`You're about to leave ${gym?.name}. We'd appreciate your feedback to help improve our services.`}
+                </Text>
+              </View>
+            )}
+          </ScrollView>
+
+          <View style={styles.ratingModalFooter}>
+            {isLeaving && (
+              <TouchableOpacity
+                style={styles.skipRatingButton}
+                onPress={handleSkipRatingAndLeave}
+              >
+                <Text style={styles.skipRatingButtonText}>Skip & Leave</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity
+              style={[
+                styles.submitReviewButton,
+                rating === 0 && styles.submitReviewButtonDisabled,
+              ]}
+              onPress={handleSubmitReview}
+              disabled={rating === 0 || submittingReview}
+            >
+              {submittingReview ? (
+                <ActivityIndicator color="#0a0f1a" />
+              ) : (
+                <Text style={styles.submitReviewButtonText}>
+                  {isLeaving ? "Submit & Leave Gym" : "Submit Review"}
+                </Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -1255,7 +1506,6 @@ const MyGym: React.FC = () => {
       <StatusBar barStyle="light-content" backgroundColor="#0a0f1a" />
       <View style={styles.accentCircleOne} />
       <View style={styles.accentCircleTwo} />
-
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
@@ -1393,6 +1643,18 @@ const MyGym: React.FC = () => {
             <Ionicons name="chevron-forward" size={20} color="#64748b" />
           </TouchableOpacity>
 
+          {/* ⭐ ADDED: Rate Gym Button */}
+          <TouchableOpacity
+            style={styles.rateButton}
+            onPress={() => setShowRatingModal(true)}
+          >
+            <View style={styles.buttonInner}>
+              <Ionicons name="star-outline" size={22} color="#fbbf24" />
+              <Text style={styles.rateButtonText}>Rate Gym</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#64748b" />
+          </TouchableOpacity>
+
           <TouchableOpacity
             style={styles.reportButton}
             onPress={() => setShowReportModal(true)}
@@ -1412,7 +1674,6 @@ const MyGym: React.FC = () => {
           </TouchableOpacity>
         </View>
       </ScrollView>
-
       {/* 🔔 NOTIFICATIONS MODAL */}
       {showNotifications && (
         <Modal
@@ -1530,7 +1791,6 @@ const MyGym: React.FC = () => {
           </TouchableOpacity>
         </Modal>
       )}
-
       <Modal visible={showReportModal} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -1625,6 +1885,9 @@ const MyGym: React.FC = () => {
           </View>
         </View>
       </Modal>
+      {/* ⭐ ADDED: Rating Modals */}
+      {renderRatingModal(false)} {/* Regular rating modal */}
+      {renderRatingModal(true)} {/* Leave rating modal */}
     </View>
   );
 };
@@ -2077,6 +2340,24 @@ const styles = StyleSheet.create({
     color: "#3b82f6",
     flex: 1,
   },
+  // ⭐ ADDED: Rate Button Styles
+  rateButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "rgba(251, 191, 36, 0.1)",
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    borderWidth: 1,
+    borderColor: "rgba(251, 191, 36, 0.2)",
+  },
+  rateButtonText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#fbbf24",
+    flex: 1,
+  },
   reportButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -2176,6 +2457,138 @@ const styles = StyleSheet.create({
   },
   submitButtonDisabled: { backgroundColor: "#374151", opacity: 0.5 },
   submitButtonText: { fontSize: 16, fontWeight: "700", color: "#0a0f1a" },
+
+  // ⭐ ADDED: Rating Modal Styles
+  ratingModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.7)",
+    justifyContent: "flex-end",
+  },
+  ratingModalContent: {
+    backgroundColor: "#0a0f1a",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: height * 0.8,
+    paddingBottom: Platform.OS === "ios" ? 34 : 20,
+  },
+  ratingModalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingVertical: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.06)",
+  },
+  ratingModalTitle: {
+    fontSize: 22,
+    fontWeight: "800",
+    color: "#e9eef7",
+    flex: 1,
+  },
+  ratingModalScroll: {
+    paddingHorizontal: 20,
+    paddingBottom: 20,
+  },
+  ratingSection: {
+    marginTop: 24,
+  },
+  ratingSectionTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#e9eef7",
+    marginBottom: 16,
+    textAlign: "center",
+  },
+  starsContainer: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 8,
+  },
+  starButton: {
+    padding: 4,
+  },
+  ratingHint: {
+    fontSize: 14,
+    color: "#94a3b8",
+    textAlign: "center",
+    marginTop: 8,
+  },
+  reviewInput: {
+    backgroundColor: "rgba(15, 23, 42, 0.8)",
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.06)",
+    color: "#e9eef7",
+    fontSize: 16,
+    minHeight: 100,
+    marginBottom: 8,
+  },
+  reviewHint: {
+    fontSize: 12,
+    color: "#64748b",
+    textAlign: "center",
+  },
+  leavingNote: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+    backgroundColor: "rgba(251, 191, 36, 0.1)",
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 20,
+    borderWidth: 1,
+    borderColor: "rgba(251, 191, 36, 0.2)",
+  },
+  leavingNoteText: {
+    flex: 1,
+    fontSize: 14,
+    color: "#e9eef7",
+    lineHeight: 20,
+  },
+  ratingModalFooter: {
+    flexDirection: "row",
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    paddingBottom: Platform.OS === "ios" ? 34 : 16,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.06)",
+    gap: 12,
+  },
+  skipRatingButton: {
+    flex: 1,
+    backgroundColor: "rgba(30, 41, 59, 0.8)",
+    paddingVertical: 16,
+    borderRadius: 14,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.06)",
+  },
+  skipRatingButtonText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#e9eef7",
+  },
+  submitReviewButton: {
+    flex: 2,
+    backgroundColor: "#4ade80",
+    paddingVertical: 16,
+    borderRadius: 14,
+    alignItems: "center",
+  },
+  submitReviewButtonDisabled: {
+    backgroundColor: "#374151",
+    opacity: 0.5,
+  },
+  submitReviewButtonText: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#0a0f1a",
+  },
 
   planModalOverlay: {
     flex: 1,

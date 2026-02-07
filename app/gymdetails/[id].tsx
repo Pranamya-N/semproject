@@ -31,7 +31,7 @@ import {
 } from "react-native";
 import { useAuth } from "../context/AuthContext";
 import { db } from "../lib/firebase";
-import { Gym, PaymentMethod } from "../types/index";
+import { Gym, GymReview, PaymentMethod } from "../types/index";
 
 const { width, height } = Dimensions.get("window");
 const isSmall = height < 700;
@@ -57,6 +57,13 @@ const GymDetails: React.FC = () => {
   const [totalEnrolledMembers, setTotalEnrolledMembers] = useState(0);
   const [userEnrollmentId, setUserEnrollmentId] = useState<string | null>(null);
 
+  // ⭐ ADDED: Gym Reviews State
+  const [showReviewsModal, setShowReviewsModal] = useState(false);
+  const [gymReviews, setGymReviews] = useState<GymReview[]>([]);
+  const [loadingReviews, setLoadingReviews] = useState(false);
+  const [averageRating, setAverageRating] = useState(0);
+  const [totalReviews, setTotalReviews] = useState(0);
+
   // Join modal states
   const [showJoinModal, setShowJoinModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -70,6 +77,7 @@ const GymDetails: React.FC = () => {
     if (id) {
       fetchGymDetails();
       fetchEnrolledMembers();
+      fetchGymReviews(); // ⭐ ADDED: Fetch reviews on load
     }
   }, [id]);
 
@@ -96,6 +104,67 @@ const GymDetails: React.FC = () => {
       Alert.alert("Error", "Failed to load gym");
     } finally {
       setLoading(false);
+    }
+  };
+
+  // ⭐ ADDED: Fetch Gym Reviews
+  const fetchGymReviews = async () => {
+    if (!id) return;
+
+    setLoadingReviews(true);
+    try {
+      const reviewsRef = collection(db, "gymReviews");
+      const reviewsQuery = query(reviewsRef, where("gymId", "==", id));
+
+      const querySnapshot = await getDocs(reviewsQuery);
+      const reviews: GymReview[] = [];
+      let totalRating = 0;
+      let reviewCount = 0;
+
+      querySnapshot.forEach((doc) => {
+        const data = doc.data();
+        const review = {
+          id: doc.id,
+          gymId: data.gymId,
+          userId: data.userId,
+          userName: data.userName,
+          userEmail: data.userEmail,
+          userPhone: data.userPhone || "",
+          rating: data.rating || 0,
+          comment: data.comment || "",
+          createdAt: data.createdAt?.toDate() || new Date(),
+        } as GymReview;
+
+        reviews.push(review);
+        totalRating += data.rating || 0;
+        reviewCount++;
+      });
+
+      // Sort by date (newest first)
+      const sortedReviews = reviews.sort(
+        (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
+      );
+
+      setGymReviews(sortedReviews);
+      setTotalReviews(reviewCount);
+      setAverageRating(reviewCount > 0 ? totalRating / reviewCount : 0);
+
+      // Update gym's rating in local state (for display)
+      if (gym && reviewCount > 0) {
+        setGym((prev) =>
+          prev
+            ? {
+                ...prev,
+                rating: parseFloat((totalRating / reviewCount).toFixed(1)),
+                reviews: reviewCount,
+              }
+            : prev,
+        );
+      }
+    } catch (error) {
+      console.error("Error fetching gym reviews:", error);
+    } finally {
+      setLoadingReviews(false);
     }
   };
 
@@ -165,6 +234,7 @@ const GymDetails: React.FC = () => {
     await Promise.all([
       fetchGymDetails(),
       fetchEnrolledMembers(),
+      fetchGymReviews(), // ⭐ ADDED: Refresh reviews
       userData?.uid && id ? checkUserEnrollment() : Promise.resolve(),
     ]);
     setRefreshing(false);
@@ -554,6 +624,128 @@ Terms & Conditions:
     }
   };
 
+  // ⭐ ADDED: Render star rating
+  const renderStars = (rating: number, size: number = 16) => {
+    return Array(5)
+      .fill(0)
+      .map((_, index) => (
+        <Ionicons
+          key={index}
+          name={index < Math.floor(rating) ? "star" : "star-outline"}
+          size={size}
+          color="#fbbf24"
+          style={{ marginHorizontal: 1 }}
+        />
+      ));
+  };
+
+  // ⭐ ADDED: Format review date
+  const formatReviewDate = (date: Date) => {
+    const now = new Date();
+    const diffTime = Math.abs(now.getTime() - date.getTime());
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+    if (diffDays === 0) return "Today";
+    if (diffDays === 1) return "Yesterday";
+    if (diffDays < 7) return `${diffDays} days ago`;
+    if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`;
+    if (diffDays < 365) return `${Math.floor(diffDays / 30)} months ago`;
+    return date.toLocaleDateString("en-US", {
+      month: "short",
+      year: "numeric",
+    });
+  };
+
+  // ⭐ ADDED: Render review item
+  const renderReviewItem = (review: GymReview) => (
+    <View key={review.id} style={styles.reviewItem}>
+      <View style={styles.reviewHeader}>
+        <View style={styles.userAvatar}>
+          <Text style={styles.userInitial}>
+            {review.userName?.charAt(0)?.toUpperCase() || "U"}
+          </Text>
+        </View>
+        <View style={styles.reviewUserInfo}>
+          <Text style={styles.userName}>{review.userName || "Anonymous"}</Text>
+          <Text style={styles.reviewDate}>
+            {formatReviewDate(review.createdAt)}
+          </Text>
+        </View>
+        <View style={styles.ratingContainerSmall}>
+          {renderStars(review.rating)}
+          <Text style={styles.ratingTextSmall}>{review.rating.toFixed(1)}</Text>
+        </View>
+      </View>
+
+      {review.comment ? (
+        <Text style={styles.reviewComment}>{review.comment}</Text>
+      ) : (
+        <Text style={styles.noCommentText}>No comment provided</Text>
+      )}
+    </View>
+  );
+
+  // ⭐ ADDED: Render reviews modal
+  const renderReviewsModal = () => (
+    <Modal
+      visible={showReviewsModal}
+      transparent={true}
+      animationType="slide"
+      onRequestClose={() => setShowReviewsModal(false)}
+    >
+      <View style={styles.reviewsModalOverlay}>
+        <View style={styles.reviewsModalContent}>
+          <View style={styles.reviewsModalHeader}>
+            <View style={styles.reviewsHeaderLeft}>
+              <Text style={styles.reviewsModalTitle}>Member Reviews</Text>
+              <View style={styles.reviewsSummary}>
+                <Text style={styles.averageRatingLarge}>
+                  {averageRating.toFixed(1)}
+                </Text>
+                <View style={styles.ratingStarsLarge}>
+                  {renderStars(averageRating, 20)}
+                </View>
+                <Text style={styles.totalReviewsText}>
+                  {totalReviews} {totalReviews === 1 ? "review" : "reviews"}
+                </Text>
+              </View>
+            </View>
+            <TouchableOpacity
+              onPress={() => setShowReviewsModal(false)}
+              style={styles.reviewsCloseButton}
+            >
+              <Ionicons name="close" size={28} color="#e9eef7" />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView
+            style={styles.reviewsList}
+            showsVerticalScrollIndicator={false}
+          >
+            {loadingReviews ? (
+              <View style={styles.reviewsLoading}>
+                <ActivityIndicator size="large" color="#4ade80" />
+                <Text style={styles.loadingReviewsText}>
+                  Loading reviews...
+                </Text>
+              </View>
+            ) : gymReviews.length === 0 ? (
+              <View style={styles.noReviewsContainer}>
+                <Ionicons name="star-outline" size={64} color="#64748b" />
+                <Text style={styles.noReviewsText}>No Reviews Yet</Text>
+                <Text style={styles.noReviewsSubtext}>
+                  Be the first to review this gym!
+                </Text>
+              </View>
+            ) : (
+              gymReviews.map(renderReviewItem)
+            )}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+
   const renderTimeSlotInfo = (slot: TimeSlot) => {
     const count = timeSlotCounts[slot];
     const color = getTimeSlotColor(slot);
@@ -813,15 +1005,33 @@ Terms & Conditions:
             <Ionicons name="barbell" size={40} color="#0a0f1a" />
           </View>
           <Text style={styles.gymName}>{gym.name}</Text>
-          {gym.rating && (
-            <View style={styles.ratingContainer}>
-              <Ionicons name="star" size={16} color="#fbbf24" />
-              <Text style={styles.ratingText}>{gym.rating}</Text>
-              {gym.reviews && (
-                <Text style={styles.reviewsText}>({gym.reviews} reviews)</Text>
-              )}
+
+          {/* ⭐ ADDED: Reviews Section */}
+          <View style={styles.reviewsSection}>
+            <View style={styles.ratingDisplay}>
+              {renderStars(averageRating)}
+              <Text style={styles.averageRating}>
+                {averageRating.toFixed(1)}
+              </Text>
             </View>
-          )}
+            <Text style={styles.totalReviewsCount}>
+              ({totalReviews} {totalReviews === 1 ? "review" : "reviews"})
+            </Text>
+          </View>
+
+          {/* ⭐ ADDED: View Reviews Button */}
+          <TouchableOpacity
+            style={styles.viewReviewsButton}
+            onPress={() => setShowReviewsModal(true)}
+            disabled={totalReviews === 0}
+          >
+            <Text style={styles.viewReviewsButtonText}>
+              {totalReviews === 0 ? "No Reviews Yet" : "View Reviews"}
+            </Text>
+            {totalReviews > 0 && (
+              <Ionicons name="chevron-forward" size={16} color="#fbbf24" />
+            )}
+          </TouchableOpacity>
         </View>
 
         {/* Enrolled Members Banner */}
@@ -1038,6 +1248,9 @@ Terms & Conditions:
           )}
         </TouchableOpacity>
       </View>
+
+      {/* ⭐ ADDED: Reviews Modal */}
+      {renderReviewsModal()}
 
       {/* Join Modal */}
       <Modal
@@ -1268,21 +1481,48 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: "#e9eef7",
     textAlign: "center",
-    marginBottom: 6,
+    marginBottom: 12,
   },
-  ratingContainer: {
+  // ⭐ ADDED: Reviews Section Styles
+  reviewsSection: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 8,
+    flexWrap: "wrap",
+  },
+  ratingDisplay: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
   },
-  ratingText: {
-    fontSize: 14,
+  averageRating: {
+    fontSize: 16,
     fontWeight: "700",
     color: "#fbbf24",
+    marginLeft: 4,
   },
-  reviewsText: {
-    fontSize: 12,
-    color: "#64748b",
+  totalReviewsCount: {
+    fontSize: 13,
+    color: "#94a3b8",
+    marginLeft: 8,
+  },
+  viewReviewsButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "rgba(251, 191, 36, 0.1)",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: "rgba(251, 191, 36, 0.2)",
+  },
+  viewReviewsButtonText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#fbbf24",
   },
   liveStatusCard: {
     backgroundColor: "rgba(15, 23, 42, 0.8)",
@@ -1598,6 +1838,155 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "700",
     color: "#0a0f1a",
+  },
+
+  // ⭐ ADDED: Reviews Modal Styles
+  reviewsModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.7)",
+    justifyContent: "flex-end",
+  },
+  reviewsModalContent: {
+    backgroundColor: "#0a0f1a",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: height * 0.85,
+    paddingBottom: Platform.OS === "ios" ? 34 : 20,
+  },
+  reviewsModalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    paddingHorizontal: 20,
+    paddingVertical: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.06)",
+  },
+  reviewsHeaderLeft: {
+    flex: 1,
+  },
+  reviewsModalTitle: {
+    fontSize: 22,
+    fontWeight: "800",
+    color: "#e9eef7",
+    marginBottom: 12,
+  },
+  reviewsSummary: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  averageRatingLarge: {
+    fontSize: 28,
+    fontWeight: "800",
+    color: "#fbbf24",
+  },
+  ratingStarsLarge: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  totalReviewsText: {
+    fontSize: 14,
+    color: "#94a3b8",
+    marginLeft: 8,
+  },
+  reviewsCloseButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.05)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  reviewsList: {
+    maxHeight: height * 0.6,
+    paddingHorizontal: 20,
+  },
+  reviewsLoading: {
+    paddingVertical: 40,
+    alignItems: "center",
+  },
+  loadingReviewsText: {
+    fontSize: 14,
+    color: "#94a3b8",
+    marginTop: 12,
+  },
+  noReviewsContainer: {
+    alignItems: "center",
+    paddingVertical: 60,
+    paddingHorizontal: 20,
+  },
+  noReviewsText: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#e9eef7",
+    marginTop: 16,
+  },
+  noReviewsSubtext: {
+    fontSize: 14,
+    color: "#64748b",
+    marginTop: 8,
+    textAlign: "center",
+  },
+  reviewItem: {
+    backgroundColor: "rgba(15, 23, 42, 0.8)",
+    borderRadius: 16,
+    padding: 18,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.06)",
+  },
+  reviewHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  userAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "rgba(74, 222, 128, 0.2)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
+  userInitial: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#4ade80",
+  },
+  reviewUserInfo: {
+    flex: 1,
+  },
+  userName: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#e9eef7",
+    marginBottom: 2,
+  },
+  reviewDate: {
+    fontSize: 12,
+    color: "#64748b",
+  },
+  ratingContainerSmall: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  ratingTextSmall: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#fbbf24",
+  },
+  reviewComment: {
+    fontSize: 14,
+    color: "#94a3b8",
+    lineHeight: 20,
+  },
+  noCommentText: {
+    fontSize: 13,
+    color: "#64748b",
+    fontStyle: "italic",
   },
 
   // Modal Styles
