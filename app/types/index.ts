@@ -1,8 +1,14 @@
-export type UserRole = 'superAdmin' | 'gymAdmin' | 'member';
-export type EnrollmentStatus = 'none' | 'pending' | 'approved' | 'rejected';
-export type PaymentMethod = 'online' | 'offline' | 'Quarterly' | '6-Month';
-export type IssueType = 'Equipment' | 'Cleanliness' | 'Staff' | 'Safety' | 'Other';
-export type ReportStatus = 'pending' | 'reviewed' | 'resolved' | 'rejected';
+export type UserRole = "superAdmin" | "gymAdmin" | "member";
+export type EnrollmentStatus = "none" | "pending" | "approved" | "rejected";
+export type PaymentMethod = "online" | "offline" | "Quarterly" | "6-Month";
+export type IssueType =
+  | "Equipment"
+  | "Cleanliness"
+  | "Staff"
+  | "Safety"
+  | "Other";
+export type ReportStatus = "pending" | "reviewed" | "resolved" | "rejected";
+export type PlanChangeStatus = "pending" | "approved" | "rejected";
 
 export interface Gym {
   id: string;
@@ -42,7 +48,10 @@ export interface UserData {
   enrolledAt: Date | null;
   createdAt: Date;
   planDuration?: number;
-  timeSlot?: 'Morning' | 'Evening' | 'Night' | null;
+  timeSlot?: "Morning" | "Evening" | "Night" | null;
+  streak?: number;
+  totalDuration?: number;
+  statsUpdatedAt?: Date;
 }
 
 export interface Enrollment {
@@ -60,7 +69,31 @@ export interface Enrollment {
   verifiedAt: Date | null;
   verifiedBy: string | null;
 }
-export type PlanChangeStatus = 'pending' | 'approved' | 'rejected';
+
+export interface CheckInRecord {
+  id: string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  gymId: string;
+  gymName: string;
+  timeSlot: "Morning" | "Evening" | "Night";
+  date: string; // "YYYY-MM-DD" local date
+  checkInTime: Date;
+  checkOutTime: Date;
+  duration: number; // seconds
+  createdAt: Date;
+}
+
+export interface ActiveCheckIn {
+  userId: string;
+  userName: string;
+  gymId: string;
+  gymName: string;
+  timeSlot: "Morning" | "Evening" | "Night";
+  checkInTime: Date;
+  createdAt: Date;
+}
 
 export interface PlanChangeRequest {
   id: string;
@@ -73,14 +106,15 @@ export interface PlanChangeRequest {
   reviewedAt: Date | null;
   reviewedBy: string | null;
 }
+
 export interface GymReport {
-  id?: string; // Optional because Firestore adds it
+  id?: string;
   gymId: string;
   gymName: string;
   userId: string;
   userName: string;
   userEmail: string;
-  issueTypes: IssueType[]; // Array of issues (multiple selection)
+  issueTypes: IssueType[];
   description: string;
   status: ReportStatus;
   createdAt: Date;
