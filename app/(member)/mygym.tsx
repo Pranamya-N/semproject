@@ -20,6 +20,7 @@ import {
   Dimensions,
   Modal,
   Platform,
+  RefreshControl,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -91,6 +92,19 @@ const MyGym: React.FC = () => {
   const [submittingReview, setSubmittingReview] = useState<boolean>(false);
   const [hasGivenReview, setHasGivenReview] = useState<boolean>(false);
 
+  // ⭐ ADDED: SWIPE-TO-REFRESH STATE
+  const [refreshing, setRefreshing] = useState<boolean>(false);
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+  }, []);
+
   useEffect(() => {
     if (userData && !initialLoadDone) {
       checkEnrollmentAndFetchGym();
@@ -117,6 +131,35 @@ const MyGym: React.FC = () => {
       checkIfUserHasReviewed();
     }
   }, [userData?.uid]);
+
+  // ⭐ ADDED: MAIN REFRESH FUNCTION
+  const refreshAllData = async () => {
+    setRefreshing(true);
+    try {
+      if (userData?.enrollmentStatus === "approved" && userData?.gymId) {
+        await fetchGymData(userData.gymId);
+        await loadUserStats();
+      } else {
+        setLoading(false);
+      }
+      await refreshUserData();
+
+      // Also refresh notifications
+      if (userData?.uid) {
+        await fetchUserNotifications();
+      }
+
+      console.log("✅ All data refreshed");
+    } catch (error) {
+      console.error("Error refreshing data:", error);
+      Alert.alert(
+        "Refresh Failed",
+        "Could not refresh data. Please try again.",
+      );
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const checkEnrollmentAndFetchGym = async () => {
     if (userData?.enrollmentStatus === "approved" && userData?.gymId) {
@@ -623,6 +666,35 @@ const MyGym: React.FC = () => {
     }, 5000);
   };
 
+  // ⭐ ADDED: Force checkout without streak calculation (for leaving gym)
+  const forceCheckOutWithoutStreak = async () => {
+    if (!userData?.uid) return;
+
+    // Stop timer
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+
+    // Remove from active check-ins
+    try {
+      await deleteDoc(doc(db, "activeCheckIns", userData.uid));
+
+      // Update local state
+      setIsCheckedIn(false);
+      setCheckInStartTime(null);
+      setTimerSeconds(0);
+
+      if (gym?.id) {
+        fetchActiveCheckInsCount(gym.id);
+      }
+
+      console.log("✅ Forced checkout completed (no streak recorded)");
+    } catch (error) {
+      console.error("Error during forced checkout:", error);
+    }
+  };
+
   // ⭐ ADDED: Submit gym review
   const handleSubmitReview = async () => {
     if (rating === 0) {
@@ -688,35 +760,50 @@ const MyGym: React.FC = () => {
     );
   };
 
-  // ⭐ ADDED: Actual leave gym function
+  // ⭐ FIXED: Actual leave gym function with proper streak reset
   const performLeaveGym = async (skipRating: boolean = false) => {
     try {
       if (!userData?.uid) return;
 
+      // 1. First, update local state immediately
+      setStreak(0);
+      setTotalDuration(0);
+      setIsCheckedIn(false);
+      setTimerSeconds(0);
+      setCheckInStartTime(null);
+
+      // 2. Force checkout if checked in (without creating check-in history)
       if (isCheckedIn) {
-        await performCheckOut();
+        await forceCheckOutWithoutStreak();
       }
 
+      // 3. Update Firestore with CLEAR streak reset
       await updateDoc(doc(db, "users", userData.uid), {
         gymId: null,
         enrollmentStatus: "none",
         paymentMethod: null,
         transactionId: null,
         enrolledAt: null,
-        streak: 0,
-        totalDuration: 0,
-        hasReviewedCurrentGym: false, // Reset for next gym
+        streak: 0, // Explicitly set to 0
+        totalDuration: 0, // Explicitly set to 0
+        hasReviewedCurrentGym: false,
+        statsUpdatedAt: serverTimestamp(), // Force update timestamp
       });
 
+      // 4. Clear local gym data
+      setGym(null);
+      setActiveCheckInsCount(0);
+
+      // 5. Refresh user data and navigate
       await refreshUserData();
       router.replace("/(member)/home");
       Alert.alert(
         "Success",
-        "You have left the gym. Browse the home page to find a new gym!",
+        "You have left the gym. Your streak has been reset to 0.",
       );
     } catch (error) {
       console.error("Error leaving gym:", error);
-      Alert.alert("Error", "Failed to leave gym");
+      Alert.alert("Error", "Failed to leave gym. Please try again.");
     }
   };
 
@@ -735,6 +822,24 @@ const MyGym: React.FC = () => {
         },
       ],
     );
+  };
+
+  // ⭐ ADDED: Manual streak reset function (for debugging)
+  const resetStreakManually = async () => {
+    try {
+      if (!userData?.uid) return;
+
+      await updateDoc(doc(db, "users", userData.uid), {
+        streak: 0,
+        statsUpdatedAt: serverTimestamp(),
+      });
+
+      setStreak(0);
+      Alert.alert("Success", "Streak has been reset to 0");
+    } catch (error) {
+      console.error("Error resetting streak:", error);
+      Alert.alert("Error", "Failed to reset streak");
+    }
   };
 
   const handleRefreshStatus = async () => {
@@ -1367,86 +1472,106 @@ const MyGym: React.FC = () => {
         <StatusBar barStyle="light-content" backgroundColor="#0a0f1a" />
         <View style={styles.accentCircleOne} />
         <View style={styles.accentCircleTwo} />
-        <View style={styles.emptyContainer}>
-          <View style={styles.iconContainer}>
-            <View style={styles.iconCircle}>
-              <Ionicons name="time-outline" size={64} color="#fbbf24" />
-            </View>
-          </View>
-          <Text style={styles.emptyTitle}>Enrollment Pending</Text>
-          <Text style={styles.emptySubtext}>
-            {`Your enrollment request is being reviewed by the gym admin. You'll
-            be able to check-in once approved.`}
-          </Text>
-
-          <TouchableOpacity
-            style={styles.viewPlanButton}
-            onPress={() => setShowPlanDetailsModal(true)}
-          >
-            <Ionicons name="eye-outline" size={20} color="#0a0f1a" />
-            <Text style={styles.viewPlanButtonText}>View Plan Details</Text>
-          </TouchableOpacity>
-
-          <View style={styles.statusCard}>
-            <View style={styles.statusRow}>
-              <Text style={styles.statusLabel}>Status</Text>
-              <View style={styles.pendingBadge}>
-                <Text style={styles.pendingBadgeText}>
-                  Pending Verification
-                </Text>
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={refreshAllData}
+              colors={["#4ade80"]}
+              tintColor="#4ade80"
+              title="Pull to refresh"
+              titleColor="#94a3b8"
+            />
+          }
+        >
+          <View style={styles.emptyContainer}>
+            <View style={styles.iconContainer}>
+              <View style={styles.iconCircle}>
+                <Ionicons name="time-outline" size={64} color="#fbbf24" />
               </View>
             </View>
+            <Text style={styles.emptyTitle}>Enrollment Pending</Text>
+            <Text style={styles.emptySubtext}>
+              {`Your enrollment request is being reviewed by the gym admin. You'll
+              be able to check-in once approved.`}
+            </Text>
 
-            {userData?.paymentMethod && (
-              <>
-                <View style={styles.divider} />
-                <View style={styles.quickSummaryRow}>
-                  <Ionicons name="calendar-outline" size={18} color="#4ade80" />
-                  <Text style={styles.quickSummaryText}>
-                    Plan: {getPlanName(userData.paymentMethod)}
+            <TouchableOpacity
+              style={styles.viewPlanButton}
+              onPress={() => setShowPlanDetailsModal(true)}
+            >
+              <Ionicons name="eye-outline" size={20} color="#0a0f1a" />
+              <Text style={styles.viewPlanButtonText}>View Plan Details</Text>
+            </TouchableOpacity>
+
+            <View style={styles.statusCard}>
+              <View style={styles.statusRow}>
+                <Text style={styles.statusLabel}>Status</Text>
+                <View style={styles.pendingBadge}>
+                  <Text style={styles.pendingBadgeText}>
+                    Pending Verification
                   </Text>
                 </View>
-              </>
-            )}
-
-            {userData?.timeSlot && (
-              <View style={styles.quickSummaryRow}>
-                <Ionicons
-                  name={getTimeSlotIcon(userData.timeSlot)}
-                  size={18}
-                  color={getTimeSlotColor(userData.timeSlot)}
-                />
-                <Text style={styles.quickSummaryText}>
-                  Time Slot: {userData.timeSlot}
-                </Text>
               </View>
-            )}
 
-            {userData?.transactionId && (
-              <>
-                <View style={styles.divider} />
+              {userData?.paymentMethod && (
+                <>
+                  <View style={styles.divider} />
+                  <View style={styles.quickSummaryRow}>
+                    <Ionicons
+                      name="calendar-outline"
+                      size={18}
+                      color="#4ade80"
+                    />
+                    <Text style={styles.quickSummaryText}>
+                      Plan: {getPlanName(userData.paymentMethod)}
+                    </Text>
+                  </View>
+                </>
+              )}
+
+              {userData?.timeSlot && (
                 <View style={styles.quickSummaryRow}>
                   <Ionicons
-                    name="document-text-outline"
+                    name={getTimeSlotIcon(userData.timeSlot)}
                     size={18}
-                    color="#a855f7"
+                    color={getTimeSlotColor(userData.timeSlot)}
                   />
                   <Text style={styles.quickSummaryText}>
-                    Transaction ID: {userData.transactionId.substring(0, 8)}...
+                    Time Slot: {userData.timeSlot}
                   </Text>
                 </View>
-              </>
-            )}
-          </View>
+              )}
 
-          <TouchableOpacity
-            style={styles.refreshButton}
-            onPress={handleRefreshStatus}
-          >
-            <Ionicons name="refresh-outline" size={20} color="#e9eef7" />
-            <Text style={styles.refreshButtonText}>Check Status</Text>
-          </TouchableOpacity>
-        </View>
+              {userData?.transactionId && (
+                <>
+                  <View style={styles.divider} />
+                  <View style={styles.quickSummaryRow}>
+                    <Ionicons
+                      name="document-text-outline"
+                      size={18}
+                      color="#a855f7"
+                    />
+                    <Text style={styles.quickSummaryText}>
+                      Transaction ID: {userData.transactionId.substring(0, 8)}
+                      ...
+                    </Text>
+                  </View>
+                </>
+              )}
+            </View>
+
+            <TouchableOpacity
+              style={styles.refreshButton}
+              onPress={handleRefreshStatus}
+            >
+              <Ionicons name="refresh-outline" size={20} color="#e9eef7" />
+              <Text style={styles.refreshButtonText}>Check Status</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
 
         {renderPlanDetailsModal()}
       </View>
@@ -1459,20 +1584,35 @@ const MyGym: React.FC = () => {
         <StatusBar barStyle="light-content" backgroundColor="#0a0f1a" />
         <View style={styles.accentCircleOne} />
         <View style={styles.accentCircleTwo} />
-        <View style={styles.emptyContainer}>
-          <Ionicons name="fitness-outline" size={80} color="#64748b" />
-          <Text style={styles.emptyTitle}>No Gym Enrolled</Text>
-          <Text style={styles.emptySubtext}>
-            Browse available gyms on the Home tab and join one to get started!
-          </Text>
-          <TouchableOpacity
-            style={styles.browseButton}
-            onPress={() => router.push("/(member)/home")}
-          >
-            <Ionicons name="search" size={20} color="#0a0f1a" />
-            <Text style={styles.browseButtonText}>Browse Gyms</Text>
-          </TouchableOpacity>
-        </View>
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={refreshAllData}
+              colors={["#4ade80"]}
+              tintColor="#4ade80"
+              title="Pull to refresh"
+              titleColor="#94a3b8"
+            />
+          }
+        >
+          <View style={styles.emptyContainer}>
+            <Ionicons name="fitness-outline" size={80} color="#64748b" />
+            <Text style={styles.emptyTitle}>No Gym Enrolled</Text>
+            <Text style={styles.emptySubtext}>
+              Browse available gyms on the Home tab and join one to get started!
+            </Text>
+            <TouchableOpacity
+              style={styles.browseButton}
+              onPress={() => router.push("/(member)/home")}
+            >
+              <Ionicons name="search" size={20} color="#0a0f1a" />
+              <Text style={styles.browseButtonText}>Browse Gyms</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
       </View>
     );
   }
@@ -1483,20 +1623,35 @@ const MyGym: React.FC = () => {
         <StatusBar barStyle="light-content" backgroundColor="#0a0f1a" />
         <View style={styles.accentCircleOne} />
         <View style={styles.accentCircleTwo} />
-        <View style={styles.emptyContainer}>
-          <Ionicons name="close-circle-outline" size={80} color="#f87171" />
-          <Text style={styles.emptyTitle}>Enrollment Rejected</Text>
-          <Text style={styles.emptySubtext}>
-            Your enrollment request was rejected. Please contact the gym for
-            more information.
-          </Text>
-          <TouchableOpacity
-            style={styles.browseButton}
-            onPress={() => router.push("/(member)/home")}
-          >
-            <Text style={styles.browseButtonText}>Browse Other Gyms</Text>
-          </TouchableOpacity>
-        </View>
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={refreshAllData}
+              colors={["#4ade80"]}
+              tintColor="#4ade80"
+              title="Pull to refresh"
+              titleColor="#94a3b8"
+            />
+          }
+        >
+          <View style={styles.emptyContainer}>
+            <Ionicons name="close-circle-outline" size={80} color="#f87171" />
+            <Text style={styles.emptyTitle}>Enrollment Rejected</Text>
+            <Text style={styles.emptySubtext}>
+              Your enrollment request was rejected. Please contact the gym for
+              more information.
+            </Text>
+            <TouchableOpacity
+              style={styles.browseButton}
+              onPress={() => router.push("/(member)/home")}
+            >
+              <Text style={styles.browseButtonText}>Browse Other Gyms</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
       </View>
     );
   }
@@ -1509,6 +1664,17 @@ const MyGym: React.FC = () => {
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={refreshAllData}
+            colors={["#4ade80"]}
+            tintColor="#4ade80"
+            title="Pull to refresh"
+            titleColor="#94a3b8"
+            progressBackgroundColor="#0f172a"
+          />
+        }
       >
         {/* 🔔 NOTIFICATION HEADER */}
         <View style={styles.header}>
@@ -1533,7 +1699,16 @@ const MyGym: React.FC = () => {
             </Text>
           </View>
 
-          <View style={styles.headerRightSpacer} />
+          <TouchableOpacity
+            style={styles.refreshHeaderButton}
+            onPress={refreshAllData}
+          >
+            <Ionicons
+              name="refresh-outline"
+              size={22}
+              color={refreshing ? "#4ade80" : "#94a3b8"}
+            />
+          </TouchableOpacity>
         </View>
 
         <View style={styles.gymCard}>
@@ -1672,6 +1847,20 @@ const MyGym: React.FC = () => {
               <Text style={styles.leaveButtonText}>Leave Gym</Text>
             </View>
           </TouchableOpacity>
+
+          {/* ⭐ ADDED: Debug button for streak reset (optional - remove in production) */}
+          {/* <TouchableOpacity style={styles.debugButton} onPress={resetStreakManually}>
+            <View style={styles.buttonInner}>
+              <Ionicons name="bug-outline" size={22} color="#ef4444" />
+              <Text style={styles.debugButtonText}>Reset Streak (Debug)</Text>
+            </View>
+          </TouchableOpacity> */}
+        </View>
+
+        {/* ⭐ ADDED: Refresh hint text */}
+        <View style={styles.refreshHintContainer}>
+          <Ionicons name="arrow-down-outline" size={16} color="#64748b" />
+          <Text style={styles.refreshHintText}>Pull down to refresh</Text>
         </View>
       </ScrollView>
       {/* 🔔 NOTIFICATIONS MODAL */}
@@ -2084,8 +2273,15 @@ const styles = StyleSheet.create({
     flex: 1,
     marginLeft: 12,
   },
-  headerRightSpacer: {
+  refreshHeaderButton: {
     width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "rgba(30, 41, 59, 0.8)",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.06)",
   },
   greeting: { fontSize: 16, color: "#94a3b8" },
   userName: {
@@ -2386,6 +2582,34 @@ const styles = StyleSheet.create({
     borderColor: "rgba(248, 113, 113, 0.2)",
   },
   leaveButtonText: { fontSize: 16, fontWeight: "600", color: "#f87171" },
+  // ⭐ ADDED: Debug Button Styles (optional)
+  debugButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(239, 68, 68, 0.1)",
+    borderRadius: 14,
+    paddingVertical: 16,
+    borderWidth: 1,
+    borderColor: "rgba(239, 68, 68, 0.2)",
+    marginTop: 10,
+  },
+  debugButtonText: { fontSize: 16, fontWeight: "600", color: "#ef4444" },
+  // ⭐ ADDED: Refresh Hint Styles
+  refreshHintContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    marginTop: 20,
+    paddingVertical: 12,
+    opacity: 0.6,
+  },
+  refreshHintText: {
+    fontSize: 14,
+    color: "#64748b",
+    fontWeight: "500",
+  },
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0, 0, 0, 0.7)",
